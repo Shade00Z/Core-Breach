@@ -15,7 +15,7 @@ Config.Wave = {
 
 -- MONEY ---------------------------------------------------------------
 Config.Money = {
-	BasePerWave = 2,      -- coins from clearing wave 1
+	BasePerWave = 15,     -- coins from wave 1 (sized so a first purchase comes after about 2 waves)
 	Growth = 1.15,        -- coins grow 15% per wave (slower than HP, so you eventually stall)
 }
 
