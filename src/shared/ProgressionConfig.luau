@@ -19,12 +19,21 @@ Config.Money = {
 	Growth = 1.15,        -- coins grow 15% per wave (slower than HP, so you eventually stall)
 }
 
--- REBIRTH (hours) -----------------------------------------------------
--- Resets wave + coins + gear on the wall. Keeps gear collection.
+-- REBIRTH -------------------------------------------------------------
+-- Available once you've LOST a wave this run (you've hit your limit).
+-- Rebirthing sends you back to wave 1 and keeps everything else: coins,
+-- gear, gear levels, stash, opened slots. In return your coin multiplier
+-- goes up for good, so the next climb pays more and you get further.
+--
+-- How much it goes up depends on the best wave you beat this run:
+--   gain = GainScale x (best wave / 10)^2
+--   wave 10: +0.10   wave 20: +0.40   wave 30: +0.90   wave 40: +1.60
+-- Gains add up across rebirths. Squaring the wave means pushing further
+-- pays much more than rebirthing early. Because you must lose a wave first,
+-- rebirthing at a wave you can easily beat isn't possible.
 Config.Rebirth = {
-	BaseWave = 40,        -- wave needed for the first rebirth
-	WaveStep = 5,         -- each rebirth needs 5 more waves than the last
-	CoinBonus = 0.25,     -- +25% coins per rebirth (additive: 4 rebirths = 2x)
+	MinWave = 1, -- a run must beat at least this wave to give any gain
+	GainScale = 0.1,
 }
 
 -- RE-DRILL (days) -----------------------------------------------------
@@ -57,13 +66,17 @@ function Config.WaveHP(wave: number): number
 	return hp
 end
 
-function Config.CoinsForWave(wave: number, rebirths: number): number
-	local mult = 1 + Config.Rebirth.CoinBonus * rebirths
-	return Config.Money.BasePerWave * Config.Money.Growth ^ wave * mult
+-- Coins a wave is worth, times the player's coin multiplier.
+function Config.CoinsForWave(wave: number, multiplier: number?): number
+	return Config.Money.BasePerWave * Config.Money.Growth ^ wave * (multiplier or 1)
 end
 
-function Config.RebirthWave(rebirths: number): number
-	return Config.Rebirth.BaseWave + Config.Rebirth.WaveStep * rebirths
+-- Coin multiplier gained by rebirthing after beating this wave (0 if too early).
+function Config.RebirthGain(bestWave: number): number
+	if bestWave < Config.Rebirth.MinWave then
+		return 0
+	end
+	return Config.Rebirth.GainScale * (bestWave / 10) ^ 2
 end
 
 function Config.GlobalDPSMult(reDrills: number, ascensions: number): number

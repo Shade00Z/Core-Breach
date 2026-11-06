@@ -21,6 +21,7 @@ local Modules = script.Parent.Parent:WaitForChild("Modules")
 local LaneBuilder = require(Modules:WaitForChild("LaneBuilder"))
 local GearVisuals = require(Modules:WaitForChild("GearVisuals"))
 local FXBatcher = require(Modules:WaitForChild("FXBatcher"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
 
 local SLOT_PREFERENCE = { 1, 4, 2, 5, 3, 6 } -- fill front slots first
 local SLOT_COLOR_LOCKED = Color3.fromRGB(85, 80, 75)
@@ -77,15 +78,32 @@ end
 local function totalDps(state: State): number
 	local total = 0
 	for _, m in state.mounted do
-		total += GearData.DPS(m.gear, m.level)
+		total += GearData.EffectiveDPS(m.gear, m.level)
 	end
 	return total
 end
 
+-- Sends total DPS and the player's gear (for the gear panel).
 local function pushDps(player: Player, state: State?)
-	if state then
-		EconomyService:PushStats(player, { dps = totalDps(state) })
+	local data = DataService:Get(player)
+	local owned = {}
+	for gearId, o in data.owned do
+		local maxed = o.level >= GearData.Levels.MaxLevel
+		owned[gearId] = {
+			level = o.level,
+			copies = o.copies,
+			needed = if maxed then 0 else GearData.CopiesToLevelUp(o.level),
+			maxed = maxed,
+		}
 	end
+	EconomyService:PushStats(player, {
+		dps = if state then totalDps(state) else 0,
+		gear = {
+			owned = owned,
+			slots = table.clone(data.slots),
+			unlocked = table.clone(data.unlockedSlots),
+		},
+	})
 end
 
 local function mountedSlotOf(data, gearId: string): number?
@@ -145,7 +163,7 @@ local function autoMount(player: Player, gearId: string): string?
 	if not gear or mountedSlotOf(data, gearId) then
 		return nil
 	end
-	local myDps = GearData.DPS(gear, levelOf(data, gearId))
+	local myDps = GearData.EffectiveDPS(gear, levelOf(data, gearId))
 
 	local function place(slotIndex: number)
 		data.slots[tostring(slotIndex)] = gearId
@@ -168,7 +186,7 @@ local function autoMount(player: Player, gearId: string): string?
 		local mountedId = data.slots[key]
 		local mountedGear = mountedId and GearData.Get(mountedId)
 		if data.unlockedSlots[key] and mountedGear then
-			local dps = GearData.DPS(mountedGear, levelOf(data, mountedId))
+			local dps = GearData.EffectiveDPS(mountedGear, levelOf(data, mountedId))
 			if dps < weakestDps then
 				weakestSlot, weakestDps = slotIndex, dps
 			end
@@ -249,6 +267,7 @@ local function stepState(state: State, dt: number)
 	if lane.state ~= "Running" then
 		return
 	end
+	dt *= lane.timeScale or 1
 	for _, m in state.mounted do
 		m.cooldown -= dt
 		local shots = 0
@@ -304,6 +323,7 @@ function GearService:Give(player: Player, gearId: string): string
 	local state = states[player]
 	local owned = data.owned[gearId]
 
+	data.discovered[gearId] = true
 	if not owned then
 		data.owned[gearId] = { level = 1, copies = 0 }
 		local message = autoMount(player, gearId)
@@ -344,14 +364,125 @@ function GearService:Give(player: Player, gearId: string): string
 	return message
 end
 
--- Opens a wall slot (used by digging in week 3).
+-- Rebuilds the wall from the player's data (used after a rebirth).
+function GearService:Rebuild(player: Player)
+	local state = states[player]
+	if not state then
+		return
+	end
+	local data = DataService:Get(player)
+	for slotIndex in table.clone(state.mounted) do
+		unmount(state, slotIndex)
+	end
+	for slotIndex = 1, 6 do
+		unmount(state, slotIndex)
+	end
+	for key, gearId in data.slots do
+		local slotIndex = tonumber(key)
+		if slotIndex and data.unlockedSlots[key] then
+			mount(state, slotIndex, gearId, levelOf(data, gearId))
+		end
+	end
+	pushDps(player, state)
+end
+
+-- The strongest owned gear that isn't on the wall, if any.
+local function bestUnmounted(data): string?
+	local best, bestDps = nil, -1
+	for gearId, o in data.owned do
+		local gear = GearData.Get(gearId)
+		if gear and not mountedSlotOf(data, gearId) then
+			local dps = GearData.EffectiveDPS(gear, o.level)
+			if dps > bestDps then
+				best, bestDps = gearId, dps
+			end
+		end
+	end
+	return best
+end
+
+-- Opens a wall slot (used by digging in week 3) and fills it with your
+-- strongest gear that isn't already on the wall.
 function GearService:UnlockSlot(player: Player, slotIndex: number)
 	local data = DataService:Get(player)
-	data.unlockedSlots[tostring(slotIndex)] = true
+	local key = tostring(slotIndex)
+	if data.unlockedSlots[key] then
+		return
+	end
+	data.unlockedSlots[key] = true
 	local state = states[player]
 	if state then
 		refreshSlot(state.lane, slotIndex, true)
 	end
+	local gearId = bestUnmounted(data)
+	if gearId and not data.slots[key] then
+		data.slots[key] = gearId
+		if state then
+			mount(state, slotIndex, gearId, levelOf(data, gearId))
+		end
+	end
+	pushDps(player, state)
+end
+
+-- Gear panel: put owned gear on the wall. Uses an empty open slot, or
+-- replaces the weakest mounted gear. Returns a message.
+function GearService:Equip(player: Player, gearId: string): string?
+	local data = DataService:Get(player)
+	local gear = GearData.Get(gearId)
+	if not gear or not data.owned[gearId] or mountedSlotOf(data, gearId) then
+		return nil
+	end
+	local state = states[player]
+
+	local target, replaced
+	for _, slotIndex in SLOT_PREFERENCE do
+		local key = tostring(slotIndex)
+		if data.unlockedSlots[key] and not data.slots[key] then
+			target = slotIndex
+			break
+		end
+	end
+	if not target then
+		local weakestDps = math.huge
+		for _, slotIndex in SLOT_PREFERENCE do
+			local key = tostring(slotIndex)
+			local mountedId = data.slots[key]
+			local mountedGear = mountedId and GearData.Get(mountedId)
+			if data.unlockedSlots[key] and mountedGear then
+				local dps = GearData.EffectiveDPS(mountedGear, levelOf(data, mountedId))
+				if dps < weakestDps then
+					target, weakestDps, replaced = slotIndex, dps, mountedGear
+				end
+			end
+		end
+	end
+	if not target then
+		return "You have no open wall slots."
+	end
+
+	data.slots[tostring(target)] = gearId
+	if state then
+		mount(state, target, gearId, levelOf(data, gearId))
+	end
+	pushDps(player, state)
+	return if replaced then (gear.name .. " replaced " .. replaced.name .. ".") else (gear.name .. " equipped.")
+end
+
+-- Gear panel: take gear off the wall (its slot is left empty).
+function GearService:Unequip(player: Player, gearId: string): string?
+	local data = DataService:Get(player)
+	local slotIndex = mountedSlotOf(data, gearId)
+	if not slotIndex then
+		return nil
+	end
+	data.slots[tostring(slotIndex)] = nil
+	local state = states[player]
+	if state then
+		unmount(state, slotIndex)
+	end
+	pushDps(player, state)
+	local gear = GearData.Get(gearId)
+	return (if gear then gear.name else "Gear") .. " unequipped."
 end
 
 function GearService:GetTotalDps(player: Player): number
@@ -366,6 +497,22 @@ function GearService:Init(services)
 end
 
 function GearService:Start()
+	local notify = Remotes.Event("Notify")
+	Remotes.Event("GearAction").OnServerEvent:Connect(function(player, action, gearId)
+		if type(action) ~= "string" or type(gearId) ~= "string" then
+			return
+		end
+		local message
+		if action == "Equip" then
+			message = GearService:Equip(player, gearId)
+		elseif action == "Unequip" then
+			message = GearService:Unequip(player, gearId)
+		end
+		if message then
+			notify:FireClient(player, message)
+		end
+	end)
+
 	WaveService.LaneCreated:Connect(setupLane)
 	WaveService.LaneRemoved:Connect(function(lane)
 		states[lane.owner] = nil

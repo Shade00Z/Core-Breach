@@ -1,15 +1,18 @@
 -- EconomyService
--- Coins: kills drop them, players collect them, players spend them.
--- Rebirth, Re-Drill and offline earnings arrive in later weeks.
+-- Coins and rebirths.
 --
--- A wave is worth WaveService.WaveCoins(wave). Each kill drops its share of
--- that by HP, so clearing a whole wave drops the full amount and enemies that
--- leak through the barricade drop nothing.
---
--- Drops land on the player's side of the barricade. Coins only count once
--- the player walks within LaneConfig.CoinDrops.PickupRadius of them; the
--- server checks this itself (the client can't claim coins).
+-- Coins: a wave is worth WaveService.WaveCoins(wave, coinMultiplier). Each
+-- kill drops its share of that by HP, so clearing a whole wave drops the full
+-- amount and enemies that leak through the barricade drop nothing.
+-- Drops land on the player's side of the barricade and only count once the
+-- player walks within LaneConfig.CoinDrops.PickupRadius of them. The server
+-- checks this itself (the client can't claim coins).
 -- Week 9: the Auto-Collect gamepass will simply collect drops instantly.
+--
+-- Rebirth: unlocked once you LOSE a wave in a run. Rebirthing sends you back
+-- to wave 1 and keeps your coins, gear, levels, stash and coins on the
+-- ground. Your coin multiplier goes up by Config.RebirthGain(best wave this
+-- run), so each climb pays more than the last and you get further.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -18,21 +21,26 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local LaneConfig = require(Shared:WaitForChild("LaneConfig"))
+local Config = require(Shared:WaitForChild("ProgressionConfig"))
 local FXBatcher = require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("FXBatcher"))
 
 local STATS_INTERVAL = 0.1 -- send coin updates at most 10 times a second
 local PICKUP_INTERVAL = 0.1 -- check for pickups 10 times a second
+local REBIRTH_COOLDOWN = 2 -- seconds, guards against double clicks
 
 type Drop = { id: number, value: number, position: Vector3 }
 type DropState = { nextId: number, drops: { [number]: Drop }, count: number }
 
 local EconomyService = {}
 
+local services
 local DataService
 local WaveService
 local statsRemote: RemoteEvent
+local notifyRemote: RemoteEvent
 local dirty: { [Player]: boolean } = {}
 local dropStates: { [Player]: DropState } = {}
+local lastRebirth: { [Player]: number } = {}
 local rng = Random.new()
 
 ------------------------------------------------------------------------
@@ -70,6 +78,71 @@ function EconomyService:PushStats(player: Player, stats: { [string]: any })
 end
 
 ------------------------------------------------------------------------
+-- Rebirth
+------------------------------------------------------------------------
+
+function EconomyService:CanRebirth(player: Player): boolean
+	local data = DataService:Get(player)
+	return data.lostThisRun and Config.RebirthGain(data.runBestWave) > 0
+end
+
+local function pushRebirthStats(player: Player)
+	local data = DataService:Get(player)
+	EconomyService:PushStats(player, {
+		rebirths = data.rebirths,
+		coinMultiplier = data.coinMultiplier,
+		runBestWave = data.runBestWave,
+		bestWaveEver = data.bestWaveEver,
+		rebirthGain = Config.RebirthGain(data.runBestWave),
+		canRebirth = EconomyService:CanRebirth(player),
+	})
+end
+
+-- Re-sends rebirth info (used by dev cheats).
+function EconomyService:RefreshRebirth(player: Player)
+	pushRebirthStats(player)
+end
+
+function EconomyService:Rebirth(player: Player): boolean
+	local now = os.clock()
+	if lastRebirth[player] and now - lastRebirth[player] < REBIRTH_COOLDOWN then
+		return false
+	end
+	if not self:CanRebirth(player) then
+		return false
+	end
+	lastRebirth[player] = now
+
+	local data = DataService:Get(player)
+	local gain = Config.RebirthGain(data.runBestWave)
+	local reached = data.runBestWave
+
+	-- Keep the stash's remaining waves when the wave number resets
+	local lane = WaveService:GetLane(player)
+	if data.stash and lane then
+		local wavesLeft = math.max(1, data.stash.expiresAfterWave - lane.wave + 1)
+		data.stash.expiresAfterWave = wavesLeft
+	end
+
+	data.rebirths += 1
+	data.coinMultiplier += gain
+	data.runBestWave = 0
+	data.lostThisRun = false
+	WaveService:ResetLane(player, 1)
+
+	pushRebirthStats(player)
+	services.CrateService:Refresh(player)
+	notifyRemote:FireClient(player, string.format(
+		"Rebirth %d! You beat wave %d, so coins are now worth x%.2f (+%.2f). Beat your record!",
+		data.rebirths,
+		reached,
+		data.coinMultiplier,
+		gain
+	))
+	return true
+end
+
+------------------------------------------------------------------------
 -- Drops
 ------------------------------------------------------------------------
 
@@ -93,7 +166,8 @@ end
 
 local function onEnemyKilled(lane, enemy)
 	local player = lane.owner
-	local value = WaveService.WaveCoins(lane.wave, 0) * (enemy.maxHp / lane.waveTotalHp)
+	local data = DataService:Get(player)
+	local value = WaveService.WaveCoins(lane.wave, data.coinMultiplier) * (enemy.maxHp / lane.waveTotalHp)
 	local deathPosition = lane.origin * Vector3.new(enemy.lateral, 0, -enemy.dist)
 	local state = stateFor(player)
 
@@ -149,18 +223,48 @@ end
 
 ------------------------------------------------------------------------
 
-function EconomyService:Init(services)
-	DataService = services.DataService
-	WaveService = services.WaveService
+function EconomyService:Init(allServices)
+	services = allServices
+	DataService = allServices.DataService
+	WaveService = allServices.WaveService
 	statsRemote = Remotes.Event("StatsChanged")
+	notifyRemote = Remotes.Event("Notify")
 end
 
 function EconomyService:Start()
 	FXBatcher.Start()
 
 	WaveService.EnemyKilled:Connect(onEnemyKilled)
+	WaveService.WaveCleared:Connect(function(lane, cleared)
+		local player = lane.owner
+		local data = DataService:Get(player)
+		if cleared > data.runBestWave then
+			local newRecord = cleared > data.bestWaveEver and data.rebirths > 0
+			data.runBestWave = cleared
+			data.bestWaveEver = math.max(data.bestWaveEver, cleared)
+			pushRebirthStats(player)
+			if newRecord then
+				notifyRemote:FireClient(player, "New record: wave " .. cleared .. "!")
+			end
+		end
+	end)
+	WaveService.WaveFailed:Connect(function(lane)
+		local player = lane.owner
+		local data = DataService:Get(player)
+		if not data.lostThisRun then
+			data.lostThisRun = true
+			pushRebirthStats(player)
+		end
+	end)
+	WaveService.LaneCreated:Connect(function(lane)
+		pushRebirthStats(lane.owner)
+	end)
 	WaveService.LaneRemoved:Connect(function(lane)
 		dropStates[lane.owner] = nil
+	end)
+
+	Remotes.Event("RequestRebirth").OnServerEvent:Connect(function(player)
+		EconomyService:Rebirth(player)
 	end)
 
 	Players.PlayerAdded:Connect(function(player)
@@ -168,10 +272,12 @@ function EconomyService:Start()
 	end)
 	for _, player in Players:GetPlayers() do
 		dirty[player] = true
+		pushRebirthStats(player)
 	end
 	Players.PlayerRemoving:Connect(function(player)
 		dirty[player] = nil
 		dropStates[player] = nil
+		lastRebirth[player] = nil
 	end)
 
 	local statsTimer, pickupTimer = 0, 0

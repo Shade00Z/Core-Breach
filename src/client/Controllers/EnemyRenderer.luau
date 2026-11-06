@@ -18,6 +18,8 @@ local MAX_PREDICT = 0.4 -- never predict further ahead than this (seconds)
 local SMOOTHING = 20 -- how fast corrections blend in (higher = snappier)
 local HIDDEN = CFrame.new(0, -500, 0)
 local HURT_COLOR = Color3.fromRGB(60, 10, 10)
+local FLASH_COLOR = Color3.new(1, 1, 1)
+local FLASH_TIME = 0.06
 
 -- How each enemy kind looks (gray-box blocks for now)
 local LOOKS = {
@@ -34,6 +36,7 @@ type Visual = {
 	baseTime: number, -- when it arrived
 	speed: number,
 	health: number,
+	flashUntil: number?, -- white hit flash
 }
 
 local EnemyRenderer = {}
@@ -125,7 +128,9 @@ local function onSnapshot(buf: buffer)
 		-- Darken as health drops (only touches the part when health changes)
 		if math.abs(visual.health - health) > 0.01 then
 			visual.health = health
-			visual.part.Color = lookFor(visual.kind).color:Lerp(HURT_COLOR, (1 - health) * 0.7)
+			if not visual.flashUntil then
+				visual.part.Color = lookFor(visual.kind).color:Lerp(HURT_COLOR, (1 - health) * 0.7)
+			end
 		end
 	end
 
@@ -156,6 +161,10 @@ local function onRender(dt: number)
 	for _, visual in active do
 		table.insert(parts, visual.part)
 		table.insert(cframes, visual.part.CFrame:Lerp(targetCFrame(visual, now), alpha))
+		if visual.flashUntil and now >= visual.flashUntil then
+			visual.flashUntil = nil
+			visual.part.Color = lookFor(visual.kind).color:Lerp(HURT_COLOR, (1 - visual.health) * 0.7)
+		end
 	end
 	if #parts > 0 then
 		workspace:BulkMoveTo(parts, cframes, Enum.BulkMoveMode.FireCFrameChanged)
@@ -182,6 +191,17 @@ function EnemyRenderer:Remove(id: number)
 		active[id] = nil
 	end
 	removedAt[id] = os.clock()
+end
+
+-- Flash an enemy white for a moment (called when it's hit).
+function EnemyRenderer:Flash(id: number)
+	local visual = active[id]
+	if visual then
+		if not visual.flashUntil then
+			visual.part.Color = FLASH_COLOR
+		end
+		visual.flashUntil = os.clock() + FLASH_TIME
+	end
 end
 
 -- Current drawn position of an enemy, if it's on screen.

@@ -2,7 +2,7 @@
 -- The packed format the server uses to send a lane's state to its owner.
 -- Server and client both use this module, so the format can't drift apart.
 --
--- Header (17 bytes):
+-- Header (22 bytes):
 --   0  u16  wave
 --   2  u16  barricade HP
 --   4  u16  barricade max HP
@@ -10,6 +10,9 @@
 --   7  u16  enemy count
 --   9  f32  move direction X  (the way enemies walk, in world space)
 --   13 f32  move direction Z
+--   17 u16  enemies in this wave (total)
+--   19 u16  enemies left (alive + not spawned yet)
+--   21 u8   boss health (0-254 = fraction, 255 = no boss this wave)
 -- Each enemy (14 bytes):
 --   0  u16  id
 --   2  f32  world X
@@ -20,7 +23,7 @@
 
 local LaneSnapshot = {}
 
-LaneSnapshot.HEADER_BYTES = 17
+LaneSnapshot.HEADER_BYTES = 22
 LaneSnapshot.ENTRY_BYTES = 14
 LaneSnapshot.States = { Intermission = 0, Running = 1, Failed = 2 }
 
@@ -32,6 +35,9 @@ export type Header = {
 	count: number,
 	dirX: number,
 	dirZ: number,
+	total: number,
+	remaining: number,
+	bossHealth: number?, -- 0-1, nil when there's no boss
 }
 
 function LaneSnapshot.Create(count: number): buffer
@@ -46,6 +52,9 @@ function LaneSnapshot.WriteHeader(buf: buffer, h: Header)
 	buffer.writeu16(buf, 7, h.count)
 	buffer.writef32(buf, 9, h.dirX)
 	buffer.writef32(buf, 13, h.dirZ)
+	buffer.writeu16(buf, 17, math.clamp(h.total, 0, 65535))
+	buffer.writeu16(buf, 19, math.clamp(h.remaining, 0, 65535))
+	buffer.writeu8(buf, 21, if h.bossHealth then math.clamp(math.floor(h.bossHealth * 254 + 0.5), 0, 254) else 255)
 end
 
 function LaneSnapshot.ReadHeader(buf: buffer): Header
@@ -57,6 +66,9 @@ function LaneSnapshot.ReadHeader(buf: buffer): Header
 		count = buffer.readu16(buf, 7),
 		dirX = buffer.readf32(buf, 9),
 		dirZ = buffer.readf32(buf, 13),
+		total = buffer.readu16(buf, 17),
+		remaining = buffer.readu16(buf, 19),
+		bossHealth = if buffer.readu8(buf, 21) == 255 then nil else buffer.readu8(buf, 21) / 254,
 	}
 end
 

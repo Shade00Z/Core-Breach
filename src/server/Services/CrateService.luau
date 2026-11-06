@@ -215,6 +215,7 @@ local function setupLane(lane)
 	prompt.HoldDuration = 0
 	prompt.MaxActivationDistance = 10
 	prompt.RequiresLineOfSight = false
+	prompt.Style = Enum.ProximityPromptStyle.Custom -- no default popup; the HUD shows an Open Crate button
 	prompt.Parent = crate
 	prompt.Triggered:Connect(function(player)
 		if player == lane.owner then
@@ -238,6 +239,11 @@ local function onWaveStarted(lane)
 		luckAnnounced[player] = lane.wave
 		notify(player, "Luck increased to x" .. string.format("%.2f", CrateConfig.LuckForWave(lane.wave)) .. "!")
 	end
+	pushCrateStats(player)
+end
+
+-- Re-sends luck and stash info (used after a rebirth changes the wave).
+function CrateService:Refresh(player: Player)
 	pushCrateStats(player)
 end
 

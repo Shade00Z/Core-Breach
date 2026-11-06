@@ -56,6 +56,9 @@ export type Lane = {
 	spawnInterval: number,
 	sendTimer: number,
 	nextId: number,
+	waveEnemyTotal: number,
+	timeScale: number, -- dev cheat: game speed for this lane (1 = normal)
+	cheatInvincible: boolean, -- dev cheat: barricade can't break
 }
 
 local WaveService = {}
@@ -66,11 +69,17 @@ WaveService.Lanes = {} :: { [Player]: Lane }
 --   LaneCreated(lane)         a player's lane was built
 --   LaneRemoved(lane)         a player's lane was removed
 --   WaveStarted(lane)         a wave began (luck, stash expiry)
+--   WaveCleared(lane, wave)   a wave was beaten (best wave for rebirth)
+--   WaveFailed(lane, wave)    the barricade broke; the lane drops back a wave
 -- (Signals, not BindableEvents: BindableEvents would pass a copy of the lane.)
 local killedEvent = Signal.new()
 local laneCreatedEvent = Signal.new()
 local laneRemovedEvent = Signal.new()
 local waveStartedEvent = Signal.new()
+local waveClearedEvent = Signal.new()
+local waveFailedEvent = Signal.new()
+WaveService.WaveCleared = waveClearedEvent -- (lane, clearedWave)
+WaveService.WaveFailed = waveFailedEvent -- (lane, failedWave)
 WaveService.EnemyKilled = killedEvent
 WaveService.LaneCreated = laneCreatedEvent
 WaveService.LaneRemoved = laneRemovedEvent
@@ -136,25 +145,34 @@ local function startWave(lane: Lane)
 		end
 	end
 
+	lane.waveEnemyTotal = #lane.spawnQueue
 	lane.spawnInterval = LaneConfig.SpawnSpread / #lane.spawnQueue
 	lane.spawnTimer = 0
 	lane.state = "Running"
 	waveStartedEvent:Fire(lane)
 end
 
+-- Losing a wave sends the lane back one wave, so the player keeps earning
+-- on a wave they can beat instead of being stuck on one they can't.
 local function failWave(lane: Lane)
+	local failed = lane.wave
 	table.clear(lane.enemies)
 	table.clear(lane.spawnQueue)
 	setBarricade(lane, 0)
+	lane.wave = math.max(1, failed - 1)
+	lane.model:SetAttribute("Wave", lane.wave)
 	lane.state = "Failed"
 	lane.stateTimer = LaneConfig.FailRestartSeconds
+	waveFailedEvent:Fire(lane, failed)
 end
 
 local function finishWave(lane: Lane)
+	local cleared = lane.wave
 	lane.wave += 1
 	lane.model:SetAttribute("Wave", lane.wave)
 	lane.state = "Intermission"
 	lane.stateTimer = LaneConfig.IntermissionSeconds
+	waveClearedEvent:Fire(lane, cleared)
 end
 
 -- Barricade damage from one enemy reaching it, based on the HP it has left.
@@ -193,7 +211,7 @@ local function stepLane(lane: Lane, dt: number)
 		if enemy.dist <= stopAt then
 			if LaneConfig.Enemies[enemy.kind].breaksBarricade then
 				hp = 0
-				brokenBy = "The boss broke through! Retrying wave " .. lane.wave .. "..."
+				brokenBy = "The boss broke through!"
 			else
 				hp -= leakDamage(lane, enemy)
 			end
@@ -201,7 +219,7 @@ local function stepLane(lane: Lane, dt: number)
 		end
 	end
 
-	if lane.debug.InvincibleBarricade then
+	if lane.debug.InvincibleBarricade or lane.cheatInvincible then
 		hp = math.max(hp, 1)
 	end
 
@@ -210,7 +228,8 @@ local function stepLane(lane: Lane, dt: number)
 	end
 
 	if lane.barricadeHp <= 0 then
-		notifyRemote:FireClient(lane.owner, brokenBy or ("Barricade broken! Retrying wave " .. lane.wave .. "..."))
+		local back = math.max(1, lane.wave - 1)
+		notifyRemote:FireClient(lane.owner, (brokenBy or "Barricade broken!") .. " Back to wave " .. back .. ".")
 		failWave(lane)
 		return
 	end
@@ -222,8 +241,21 @@ end
 
 local function sendSnapshot(lane: Lane)
 	local count = 0
-	for _ in lane.enemies do
+	local bossHealth: number? = nil
+	for _, enemy in lane.enemies do
 		count += 1
+		if LaneConfig.Enemies[enemy.kind].breaksBarricade then
+			bossHealth = enemy.hp / enemy.maxHp
+		end
+	end
+	if not bossHealth and lane.state == "Running" and WaveService.IsBoss(lane.wave) then
+		-- Boss wave: before the boss spawns show it full; after it dies, empty
+		bossHealth = 0
+		for _, enemy in lane.spawnQueue do
+			if LaneConfig.Enemies[enemy.kind].breaksBarricade then
+				bossHealth = 1
+			end
+		end
 	end
 
 	local buf = LaneSnapshot.Create(count)
@@ -235,12 +267,15 @@ local function sendSnapshot(lane: Lane)
 		count = count,
 		dirX = lane.moveDir.X,
 		dirZ = lane.moveDir.Z,
+		total = lane.waveEnemyTotal,
+		remaining = if lane.state == "Running" then count + #lane.spawnQueue else 0,
+		bossHealth = bossHealth,
 	})
 
 	local index = 0
 	for _, enemy in lane.enemies do
 		local position = lane.origin * Vector3.new(enemy.lateral, 0, -enemy.dist)
-		LaneSnapshot.WriteEntry(buf, index, enemy.id, position.X, position.Z, enemy.hp / enemy.maxHp, enemy.kind, enemy.speed)
+		LaneSnapshot.WriteEntry(buf, index, enemy.id, position.X, position.Z, enemy.hp / enemy.maxHp, enemy.kind, enemy.speed * lane.timeScale)
 		index += 1
 	end
 
@@ -299,6 +334,9 @@ local function createLane(player: Player)
 		spawnInterval = 0,
 		sendTimer = 0,
 		nextId = 0,
+		waveEnemyTotal = 0,
+		timeScale = 1,
+		cheatInvincible = false,
 	}
 	WaveService.Lanes[player] = lane
 	laneCreatedEvent:Fire(lane)
@@ -345,8 +383,8 @@ function WaveService.IsSwarm(wave: number): boolean
 end
 
 -- Coins a wave is worth in total (kills pay out their HP share of this).
-function WaveService.WaveCoins(wave: number, rebirths: number): number
-	local coins = Config.CoinsForWave(wave, rebirths)
+function WaveService.WaveCoins(wave: number, multiplier: number?): number
+	local coins = Config.CoinsForWave(wave, multiplier)
 	if WaveService.IsBoss(wave) then
 		coins *= LaneConfig.BossCoinMultiplier
 	end
@@ -355,6 +393,37 @@ end
 
 function WaveService:GetLane(player: Player): Lane?
 	return self.Lanes[player]
+end
+
+-- Clears the lane and starts it over at a wave (used by rebirth).
+function WaveService:ResetLane(player: Player, wave: number)
+	local lane = self.Lanes[player]
+	if not lane then
+		return
+	end
+	table.clear(lane.enemies)
+	table.clear(lane.spawnQueue)
+	lane.wave = math.max(1, wave)
+	lane.model:SetAttribute("Wave", lane.wave)
+	setBarricade(lane, LaneConfig.BarricadeMaxHP)
+	lane.state = "Intermission"
+	lane.stateTimer = LaneConfig.IntermissionSeconds
+end
+
+-- Dev cheat: kills every enemy in the wave, including ones not spawned yet,
+-- so the wave counts as cleared and drops all its coins.
+function WaveService:KillAll(player: Player)
+	local lane = self.Lanes[player]
+	if not lane or lane.state ~= "Running" then
+		return
+	end
+	for _, enemy in lane.spawnQueue do
+		lane.enemies[enemy.id] = enemy
+	end
+	table.clear(lane.spawnQueue)
+	for id in table.clone(lane.enemies) do
+		self:DamageEnemy(lane, id, math.huge)
+	end
 end
 
 -- Damage an enemy in a lane. Returns true if it died.
@@ -373,7 +442,25 @@ function WaveService:DamageEnemy(lane: Lane, enemyId: number, amount: number): b
 	return false
 end
 
+-- The place's default SpawnLocation sits in view at the start of lane 1.
+-- Players are moved to their lane on spawn anyway, so hide it.
+local function hideSpawnLocations()
+	for _, spawn in workspace:GetDescendants() do
+		if spawn:IsA("SpawnLocation") then
+			spawn.Transparency = 1
+			spawn.CanCollide = false
+			spawn.CastShadow = false
+			for _, child in spawn:GetChildren() do
+				if child:IsA("Decal") then
+					child.Transparency = 1
+				end
+			end
+		end
+	end
+end
+
 function WaveService:Init()
+	hideSpawnLocations()
 	lanesFolder = Instance.new("Folder")
 	lanesFolder.Name = "Lanes"
 	lanesFolder.Parent = workspace
@@ -391,7 +478,7 @@ function WaveService:Start()
 	local sendInterval = 1 / LaneConfig.SnapshotRate
 	RunService.Heartbeat:Connect(function(dt)
 		for _, lane in WaveService.Lanes do
-			stepLane(lane, dt)
+			stepLane(lane, dt * lane.timeScale)
 			lane.sendTimer -= dt
 			if lane.sendTimer <= 0 then
 				lane.sendTimer = math.max(lane.sendTimer + sendInterval, 0)

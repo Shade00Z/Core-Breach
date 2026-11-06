@@ -22,6 +22,13 @@ local EVENTS = {
 	"CrateDecision", -- client -> server: "Buy" | "Skip" | "Stash" (week 2)
 	"DigSlot", -- client -> server: dig out a wall slot (week 3)
 	"ForgeStrike", -- client -> server: forge a weapon with chosen loot (week 5)
+	"GearAction", -- client -> server: ("Equip" | "Unequip", gearId) from the gear panel
+
+	-- Rebirth
+	"RequestRebirth", -- client -> server: the player confirmed a rebirth
+
+	-- Dev cheats (Studio only, checked on the server)
+	"DevCommand", -- client -> server: (command, value)
 
 	-- Player state and messages
 	"StatsChanged", -- server -> client: coins, level, XP, rebirths

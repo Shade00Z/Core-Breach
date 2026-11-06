@@ -19,6 +19,7 @@ local ORDER = {
 	"ForgeService",
 	"AbilityService",
 	"QuestService",
+	"DevService",
 }
 
 local loaded = {}

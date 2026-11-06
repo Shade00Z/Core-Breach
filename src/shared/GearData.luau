@@ -102,6 +102,13 @@ function GearData.DPS(gear: Gear, level: number?): number
 	return GearData.Damage(gear, level) * gear.fireRate
 end
 
+-- DPS counting splash: splash guns hit several enemies at once in a crowd.
+-- Each stud of splash radius counts as +10% (a 10-stud splash = 2x).
+-- Used for the HUD total and for deciding which gear is stronger.
+function GearData.EffectiveDPS(gear: Gear, level: number?): number
+	return GearData.DPS(gear, level) * (1 + gear.splash * 0.1)
+end
+
 -- Kept for older code: DPS at level 1.
 function GearData.BaseDPS(gear: Gear): number
 	return GearData.DPS(gear, 1)

@@ -15,9 +15,10 @@ local LaneConfig = {
 
 	-- How hard leaks hit. If an entire wave reaches the barricade untouched,
 	-- it deals LeakDamage x the barricade's max HP. Each enemy deals its share
-	-- of that, based on the HP it still has left. At 1.5 you must stop at
-	-- least a third of every wave's HP, so a lane with no gear loses wave 1.
-	LeakDamage = 1.5,
+	-- of that, based on the HP it still has left. At 4, letting more than a
+	-- quarter of a wave's HP through breaks the barricade, so you can't just
+	-- let it tank: you must kill at least 75% of every wave.
+	LeakDamage = 4,
 
 	-- Gear wall slots (distance up the lane, 3 per side = 6 slots)
 	SlotDistances = { 30, 55, 80 },

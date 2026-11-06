@@ -49,6 +49,7 @@ type MergeArc = { part: BasePart, from: Vector3, to: Vector3, born: number }
 local FXController = {}
 
 local EnemyRenderer
+local SoundController
 local folder: Folder
 local myLane: Model?
 local pools: { [string]: { BasePart } } = { tracer = {}, flash = {}, coin = {}, pop = {} }
@@ -101,8 +102,13 @@ end
 ------------------------------------------------------------------------
 
 local function trackBarricade(barricade: BasePart)
+	local lastHp = barricade:GetAttribute("HP") or 0
 	local function refresh()
 		local hp = barricade:GetAttribute("HP") or 0
+		if hp < lastHp then
+			SoundController:PlayAt(if hp <= 0 then "BarricadeBreak" else "BarricadeHit", barricade.Position)
+		end
+		lastHp = hp
 		local maxHp = math.max(1, barricade:GetAttribute("MaxHP") or 1)
 		local fraction = math.clamp(hp / maxHp, 0, 1)
 		barricade.Color = DAMAGED:Lerp(WOOD, fraction)
@@ -143,9 +149,10 @@ local function onShot(shot: FXPacket.Shot, now: number)
 		return
 	end
 	local target = EnemyRenderer:GetPosition(shot.enemyId) or Vector3.new(shot.x, ENEMY_AIM_HEIGHT, shot.z)
-
+	EnemyRenderer:Flash(shot.enemyId)
 	-- Turn the gun toward its target
 	local origin = gear.Position
+	SoundController:PlayAt("Shot", origin)
 	gear.CFrame = CFrame.lookAt(origin, Vector3.new(target.X, origin.Y, target.Z))
 	local muzzle = origin + gear.CFrame.LookVector * (gear.Size.Z / 2)
 
@@ -217,6 +224,7 @@ local function onPickup(dropId: number, now: number)
 	coin.state = "collecting"
 	coin.from = coin.part.Position
 	coin.born = now
+	SoundController:Play("CoinPickup")
 end
 
 local function onFX(buf: buffer)
@@ -312,6 +320,7 @@ end
 
 function FXController:Init(controllers)
 	EnemyRenderer = controllers.EnemyRenderer
+	SoundController = controllers.SoundController
 	folder = Instance.new("Folder")
 	folder.Name = "ClientFX"
 	folder.Parent = workspace

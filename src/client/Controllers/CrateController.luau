@@ -19,6 +19,9 @@ local CYCLE_COLORS = { Color3.fromRGB(190, 190, 190), Color3.fromRGB(70, 150, 25
 local CrateController = {}
 
 local UIController
+local SoundController
+local openButton: TextButton
+local myCrate: BasePart?
 local decisionRemote: RemoteEvent
 
 local panel: Frame
@@ -165,6 +168,7 @@ local function onResult(result)
 	end
 
 	-- Suspense: cycle rarity colors, longer for rarer pulls
+	SoundController:Play("RollStart")
 	buyButton.Visible, skipButton.Visible, stashButton.Visible = false, false, false
 	rarityLabel.Text = "ROLLING..."
 	nameLabel.Text = "?"
@@ -190,8 +194,9 @@ local function onResult(result)
 
 	showGear(result.gearId, result.price)
 
-	-- Pop the panel; bigger for rarer pulls
+	-- Pop the panel; bigger (and louder) for rarer pulls
 	local order = GearData.Rarities[gear.rarity].order
+	SoundController:Play(if order >= 4 then "RevealLegendary" elseif order >= 3 then "RevealEpic" else "RevealCommon")
 	local scale = panel:FindFirstChildOfClass("UIScale") :: UIScale
 	scale.Scale = 1 + 0.08 * order
 	TweenService:Create(scale, TweenInfo.new(0.25, Enum.EasingStyle.Back), { Scale = 1 }):Play()
@@ -224,7 +229,17 @@ end
 
 function CrateController:Init(controllers)
 	UIController = controllers.UIController
+	SoundController = controllers.SoundController
 	local gui = UIController:GetGui()
+
+	-- Open Crate button: shows when you're near your crate and no reveal is open
+	openButton = button(gui, "Open Crate  [E]", Color3.fromRGB(210, 150, 40), UDim2.new(0, 220, 0, 56), UDim2.new(0.5, -110, 1, -76))
+	openButton.Name = "OpenCrateButton"
+	openButton.TextSize = 22
+	openButton.Visible = false
+	openButton.Activated:Connect(function()
+		Remotes.Event("CrateRoll"):FireServer()
+	end)
 
 	-- Reveal panel, bottom center
 	panel = Instance.new("Frame")
@@ -300,8 +315,40 @@ function CrateController:Init(controllers)
 	end)
 end
 
+local function findMyCrate()
+	local Players = game:GetService("Players")
+	local lanes = workspace:WaitForChild("Lanes")
+	while not myCrate do
+		for _, lane in lanes:GetChildren() do
+			if lane:GetAttribute("OwnerUserId") == Players.LocalPlayer.UserId then
+				local crate = lane:FindFirstChild("Crate")
+				if crate and crate:IsA("BasePart") then
+					myCrate = crate
+				end
+			end
+		end
+		task.wait(0.5)
+	end
+end
+
+local function updateOpenButton()
+	local Players = game:GetService("Players")
+	local character = Players.LocalPlayer.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local near = myCrate ~= nil and root ~= nil and myCrate.Parent ~= nil
+		and ((root :: BasePart).Position - (myCrate :: BasePart).Position).Magnitude <= CrateConfig.MaxRollDistance - 1
+	openButton.Visible = near and not panel.Visible
+end
+
 function CrateController:Start()
 	decisionRemote = Remotes.Event("CrateDecision")
+	task.spawn(findMyCrate)
+	task.spawn(function()
+		while true do
+			updateOpenButton()
+			task.wait(0.2)
+		end
+	end)
 	Remotes.Event("CrateResult").OnClientEvent:Connect(function(result)
 		task.spawn(onResult, result)
 	end)

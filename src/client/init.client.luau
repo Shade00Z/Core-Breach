@@ -5,11 +5,15 @@
 local Controllers = script:WaitForChild("Controllers")
 
 local ORDER = {
+	"SoundController",
 	"EnemyRenderer",
 	"FXController",
 	"CombatController",
 	"UIController",
 	"CrateController",
+	"GearController",
+	"RebirthController",
+	"DevController",
 }
 
 local loaded = {}

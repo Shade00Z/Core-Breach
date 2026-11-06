@@ -21,13 +21,26 @@ local Signal = require(Shared:WaitForChild("Signal"))
 local STATE_TEXT = {
 	[LaneSnapshot.States.Intermission] = "Next wave incoming...",
 	[LaneSnapshot.States.Running] = "",
-	[LaneSnapshot.States.Failed] = "Barricade broken! Retrying wave...",
+	[LaneSnapshot.States.Failed] = "Barricade broken! Dropping back a wave...",
 }
 local TOAST_TIME = 2.5
 local MAX_TOASTS = 3
 
 local UIController = {}
-UIController.Stats = { coins = 0, dps = 0, luck = 1, luckIn = 10, stash = false } :: { [string]: any }
+local SoundController
+UIController.Stats = {
+	coins = 0,
+	dps = 0,
+	luck = 1,
+	luckIn = 10,
+	stash = false,
+	rebirths = 0,
+	coinMultiplier = 1,
+	runBestWave = 0,
+	bestWaveEver = 0,
+	rebirthGain = 0,
+	canRebirth = false,
+} :: { [string]: any }
 
 local statsEvent = Signal.new()
 UIController.StatsUpdated = statsEvent
@@ -35,6 +48,9 @@ UIController.StatsUpdated = statsEvent
 local gui: ScreenGui
 local waveLabel: TextLabel
 local statusLabel: TextLabel
+local bossBar: Frame
+local bossFill: Frame
+local lastBossHealth = 0
 local luckLabel: TextLabel
 local coinLabel: TextLabel
 local dpsLabel: TextLabel
@@ -85,7 +101,11 @@ local function refreshStats()
 	end
 	lastCoins = coins
 	coinLabel.Text = "$ " .. Format.Number(coins)
-	dpsLabel.Text = Format.Number(stats.dps or 0) .. " DPS"
+	local dpsText = Format.Number(stats.dps or 0) .. " DPS"
+	if (stats.rebirths or 0) > 0 then
+		dpsText ..= string.format("  ·  Coins x%.2f  ·  Record: wave %d", stats.coinMultiplier or 1, stats.bestWaveEver or 0)
+	end
+	dpsLabel.Text = dpsText
 	luckLabel.Text = string.format("Luck x%.2f  ·  up in %d waves", stats.luck or 1, stats.luckIn or 10)
 end
 
@@ -142,7 +162,8 @@ local function watchDebugFlag()
 	end
 end
 
-function UIController:Init()
+function UIController:Init(controllers)
+	SoundController = controllers.SoundController
 	gui = Instance.new("ScreenGui")
 	gui.Name = "HUD"
 	gui.ResetOnSpawn = false
@@ -177,11 +198,36 @@ function UIController:Init()
 	luckLabel.TextColor3 = Color3.fromRGB(150, 255, 170)
 	statusLabel = makeLabel(panel, UDim2.new(1, 0, 0, 18), UDim2.new(0, 0, 0, 68), 16)
 
+	-- Boss health bar, under the wave panel
+	bossBar = Instance.new("Frame")
+	bossBar.Name = "BossBar"
+	bossBar.AnchorPoint = Vector2.new(0.5, 0)
+	bossBar.Position = UDim2.new(0.5, 0, 0, 100)
+	bossBar.Size = UDim2.new(0, 420, 0, 22)
+	bossBar.BackgroundColor3 = Color3.fromRGB(40, 15, 15)
+	bossBar.BorderSizePixel = 0
+	bossBar.Visible = false
+	bossBar.Parent = gui
+	Instance.new("UICorner", bossBar).CornerRadius = UDim.new(0, 8)
+	local bossStroke = Instance.new("UIStroke")
+	bossStroke.Color = Color3.fromRGB(255, 80, 60)
+	bossStroke.Thickness = 2
+	bossStroke.Parent = bossBar
+	bossFill = Instance.new("Frame")
+	bossFill.Size = UDim2.new(1, 0, 1, 0)
+	bossFill.BackgroundColor3 = Color3.fromRGB(220, 50, 40)
+	bossFill.BorderSizePixel = 0
+	bossFill.Parent = bossBar
+	Instance.new("UICorner", bossFill).CornerRadius = UDim.new(0, 8)
+	local bossName = makeLabel(bossBar, UDim2.new(1, 0, 1, 0), UDim2.new(), 16)
+	bossName.Text = "LAYER BOSS"
+	bossName.ZIndex = 2
+
 	-- Top left: coins and DPS (below Roblox's menu buttons)
 	coinLabel = makeLabel(gui, UDim2.new(0, 220, 0, 36), UDim2.new(0, 12, 0, 56), 32)
 	coinLabel.TextXAlignment = Enum.TextXAlignment.Left
 	coinLabel.TextColor3 = Color3.fromRGB(255, 215, 70)
-	dpsLabel = makeLabel(gui, UDim2.new(0, 220, 0, 20), UDim2.new(0, 14, 0, 92), 17)
+	dpsLabel = makeLabel(gui, UDim2.new(0, 420, 0, 20), UDim2.new(0, 14, 0, 92), 17)
 	dpsLabel.TextXAlignment = Enum.TextXAlignment.Left
 	gainLabel = makeLabel(gui, UDim2.new(0, 160, 0, 26), UDim2.new(0, 150, 0, 61), 22)
 	gainLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -223,7 +269,23 @@ function UIController:Start()
 		local isBoss = header.wave % Config.Wave.BossEvery == 0
 		waveLabel.Text = if isBoss then ("Wave " .. header.wave .. "  (BOSS)") else ("Wave " .. header.wave)
 		hpFill.Size = UDim2.new(math.clamp(header.barricadeHp / math.max(1, header.barricadeMax), 0, 1), 0, 1, 0)
-		statusLabel.Text = STATE_TEXT[header.state] or ""
+		if header.state == LaneSnapshot.States.Running and header.total > 0 then
+			statusLabel.Text = string.format("%d / %d enemies left", header.remaining, header.total)
+		else
+			statusLabel.Text = STATE_TEXT[header.state] or ""
+		end
+		local bossShown = header.bossHealth ~= nil and header.state == LaneSnapshot.States.Running
+		if bossShown and not bossBar.Visible and (header.bossHealth or 0) > 0 then
+			SoundController:Play("BossRoar")
+		end
+		if bossBar.Visible and lastBossHealth > 0 and header.bossHealth == 0 then
+			SoundController:Play("BossDown")
+		end
+		lastBossHealth = header.bossHealth or 0
+		bossBar.Visible = bossShown
+		if header.bossHealth then
+			bossFill.Size = UDim2.new(math.clamp(header.bossHealth, 0, 1), 0, 1, 0)
+		end
 	end)
 
 	Remotes.Event("StatsChanged").OnClientEvent:Connect(function(changes: { [string]: any })
@@ -240,6 +302,13 @@ function UIController:Start()
 	Remotes.Event("Notify").OnClientEvent:Connect(function(text: string)
 		if type(text) == "string" then
 			UIController:Toast(text)
+			if text:find("leveled up") then
+				SoundController:Play("LevelUp")
+			elseif text:find("New record") then
+				SoundController:Play("NewRecord")
+			elseif text:find("^Rebirth %d") then
+				SoundController:Play("Rebirth")
+			end
 		end
 	end)
 
