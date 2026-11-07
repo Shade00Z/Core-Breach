@@ -39,6 +39,7 @@ export type PlayerData = {
 	coinMultiplier: number, -- every coin earned is multiplied by this
 	runBestWave: number, -- best wave beaten since the last rebirth
 	lostThisRun: boolean, -- lost a wave since the last rebirth (unlocks rebirth)
+	recordAnnounced: boolean, -- "New record" already shown this run
 	bestWaveEver: number,
 	discovered: { [string]: boolean }, -- every gear ever owned (kept through rebirths)
 }
@@ -61,6 +62,7 @@ local function newData(): PlayerData
 		coinMultiplier = 1,
 		runBestWave = 0,
 		lostThisRun = false,
+		recordAnnounced = false,
 		bestWaveEver = 0,
 		discovered = {},
 	}

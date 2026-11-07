@@ -152,7 +152,8 @@ function DigService:Hit(player: Player, origin: Vector3, look: Vector3, fighting
 	end
 	local data = services.DataService:Get(player)
 	for slotIndex, rock in rocks do
-		-- Distance from you to the rock's surface, and roughly in front of you
+		-- Distance from you to the rock's surface (any direction, so it's easy
+		-- on mobile where your character faces the way you last walked)
 		local localPoint = rock.CFrame:PointToObjectSpace(origin)
 		local half = rock.Size / 2
 		local closest = rock.CFrame:PointToWorldSpace(Vector3.new(
@@ -161,7 +162,7 @@ function DigService:Hit(player: Player, origin: Vector3, look: Vector3, fighting
 			math.clamp(localPoint.Z, -half.Z, half.Z)
 		))
 		local offset = Vector3.new(closest.X - origin.X, 0, closest.Z - origin.Z)
-		local inReach = offset.Magnitude <= HeroConfig.Dig.Range and (offset.Magnitude < 1 or offset.Unit:Dot(look) > 0)
+		local inReach = offset.Magnitude <= HeroConfig.Dig.Range
 		if inReach then
 			local key = tostring(slotIndex)
 			local hits = data.digging[key]
@@ -179,6 +180,8 @@ function DigService:Hit(player: Player, origin: Vector3, look: Vector3, fighting
 			if hits >= needed then
 				removeRock(player, slotIndex, true)
 				services.GearService:UnlockSlot(player, slotIndex)
+				-- Prices go up now that this slot counts as dug
+				refreshRocks(player)
 				notify:FireClient(player, "Wall slot opened!")
 			else
 				rock:SetAttribute("DigHits", hits)

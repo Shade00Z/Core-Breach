@@ -1,7 +1,8 @@
 -- CombatController
 -- Your hero's controls and the feel of fighting:
---   * Swing the pickaxe-hammer: left click (hold to keep swinging), or the
---     Swing button on mobile. Hits enemies in front of you and wall rock
+--   * Swing the pickaxe-hammer: left click (hold to keep swinging). On
+--     mobile, tap anywhere on the game world, or hold the big Swing button
+--     next to the jump button. Hits enemies in front of you and wall rock
 --     you've paid to dig.
 --   * Fire Blast: Q, or the Fire Blast button on the right. Flies where you
 --     face and bends toward the nearest enemy in front (aim assist).
@@ -33,6 +34,7 @@ local ROCK_CHIP_COLOR = Color3.fromRGB(100, 85, 75)
 local HIDDEN = CFrame.new(0, -500, 0)
 local MAX_ENEMY_RADIUS = 5
 local DAMAGE_NUMBER_POOL = 24
+local SWING_BUTTON_SCALE = 1.15 -- mobile Swing button size, relative to Roblox's jump button
 
 -- Swing animation: arm angle (degrees, forward from hanging down) over time
 local SWING_KEYS = {
@@ -60,6 +62,7 @@ local swingJoint: Motor6D? = nil
 local baseC0: { [Motor6D]: CFrame } = {}
 
 local abilityButton: TextButton
+local swingButton: TextButton?
 local cooldownShade: Frame
 local cooldownLabel: TextLabel
 local hurtOverlay: Frame
@@ -528,6 +531,76 @@ local function buildUi()
 end
 
 ------------------------------------------------------------------------
+-- Mobile Swing button
+------------------------------------------------------------------------
+
+-- Puts the Swing button just left of Roblox's jump button, a bit bigger
+-- than it, so it's under your right thumb.
+local function placeSwingButton()
+	local button = swingButton
+	if not button then
+		return
+	end
+	local gui = UIController:GetGui()
+	local touchGui = player.PlayerGui:FindFirstChild("TouchGui")
+	local jump = touchGui and touchGui:FindFirstChild("JumpButton", true)
+	if jump and jump:IsA("GuiObject") and jump.AbsoluteSize.X > 0 then
+		local size = math.max(90, jump.AbsoluteSize.X * SWING_BUTTON_SCALE)
+		local corner = jump.AbsolutePosition + jump.AbsoluteSize - gui.AbsolutePosition
+		button.Size = UDim2.fromOffset(size, size)
+		-- bottom-right corner of our button sits left of the jump button, same bottom line
+		button.Position = UDim2.fromOffset(corner.X - jump.AbsoluteSize.X - 14, corner.Y)
+	else
+		local viewport = workspace.CurrentCamera.ViewportSize
+		local small = math.min(viewport.X, viewport.Y) <= 500
+		local size = if small then 90 else 130
+		button.Size = UDim2.fromOffset(size, size)
+		button.Position = UDim2.new(1, if small then -110 else -200, 1, if small then -16 else -60)
+	end
+	button:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0.5, 0)
+end
+
+local function buildSwingButton()
+	local gui = UIController:GetGui()
+	local button = Instance.new("TextButton")
+	button.Name = "SwingButton"
+	button.AnchorPoint = Vector2.new(1, 1)
+	button.BackgroundColor3 = Color3.fromRGB(70, 75, 90)
+	button.BackgroundTransparency = 0.25
+	button.Font = Enum.Font.GothamBlack
+	button.TextColor3 = Color3.new(1, 1, 1)
+	button.TextScaled = true
+	button.Text = "SWING"
+	button.AutoButtonColor = true
+	button.Parent = gui
+	Instance.new("UICorner", button)
+	local padding = Instance.new("UIPadding")
+	padding.PaddingLeft = UDim.new(0.18, 0)
+	padding.PaddingRight = UDim.new(0.18, 0)
+	padding.Parent = button
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(220, 220, 230)
+	stroke.Thickness = 2
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Parent = button
+
+	-- Hold to keep swinging
+	button.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			holdingSwing = true
+			trySwing()
+		end
+	end)
+	button.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			holdingSwing = false
+		end
+	end)
+	swingButton = button
+	placeSwingButton()
+end
+
+------------------------------------------------------------------------
 
 function CombatController:Init(controllers)
 	UIController = controllers.UIController
@@ -553,8 +626,25 @@ function CombatController:Start()
 			holdingSwing = false
 		end
 		return Enum.ContextActionResult.Pass
-	end, true, Enum.UserInputType.MouseButton1, Enum.KeyCode.ButtonR2)
-	ContextActionService:SetTitle("HeroSwing", "Swing")
+	end, false, Enum.UserInputType.MouseButton1, Enum.KeyCode.ButtonR2)
+
+	-- Mobile: tap the game world to swing, or hold the big Swing button
+	UserInputService.TouchTapInWorld:Connect(function(_, processedByUI)
+		if not processedByUI then
+			trySwing()
+		end
+	end)
+	if UserInputService.TouchEnabled then
+		buildSwingButton()
+		-- Re-place it when the jump button appears or the screen rotates
+		player.CharacterAdded:Connect(function()
+			task.delay(1, placeSwingButton)
+		end)
+		task.delay(1, placeSwingButton)
+		workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+			task.delay(0.2, placeSwingButton)
+		end)
+	end
 
 	ContextActionService:BindAction("FireBlast", function(_, state)
 		if state == Enum.UserInputState.Begin then

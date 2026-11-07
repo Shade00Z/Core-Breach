@@ -128,6 +128,7 @@ function EconomyService:Rebirth(player: Player): boolean
 	data.coinMultiplier += gain
 	data.runBestWave = 0
 	data.lostThisRun = false
+	data.recordAnnounced = false
 	WaveService:ResetLane(player, 1)
 
 	pushRebirthStats(player)
@@ -239,12 +240,15 @@ function EconomyService:Start()
 		local player = lane.owner
 		local data = DataService:Get(player)
 		if cleared > data.runBestWave then
-			local newRecord = cleared > data.bestWaveEver and data.rebirths > 0
+			-- Announce a new record once per run (when you first pass your old
+			-- best); after that the HUD's "Record" number just keeps counting up
+			local newRecord = cleared > data.bestWaveEver and data.rebirths > 0 and not data.recordAnnounced
 			data.runBestWave = cleared
 			data.bestWaveEver = math.max(data.bestWaveEver, cleared)
 			pushRebirthStats(player)
 			if newRecord then
-				notifyRemote:FireClient(player, "New record: wave " .. cleared .. "!")
+				data.recordAnnounced = true
+				notifyRemote:FireClient(player, "New record! You've passed your best wave.")
 			end
 		end
 	end)
