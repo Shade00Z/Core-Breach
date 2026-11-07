@@ -20,7 +20,6 @@ local EVENTS = {
 	"CrateRoll", -- client -> server: request a roll (week 2)
 	"CrateResult", -- server -> client: the item you rolled and its price (week 2)
 	"CrateDecision", -- client -> server: "Buy" | "Skip" | "Stash" (week 2)
-	"DigSlot", -- client -> server: dig out a wall slot (week 3)
 	"ForgeStrike", -- client -> server: forge a weapon with chosen loot (week 5)
 	"GearAction", -- client -> server: ("Equip" | "Unequip", gearId) from the gear panel
 

@@ -9,7 +9,8 @@
 --   Wave n         jump n waves forward (or back if negative)
 --   ClearWave      kill everything in the current wave (coins still drop)
 --   Coins n        add n coins
---   Invincible     toggle an unbreakable barricade
+--   Invincible     toggle an unbreakable barricade and a hero that can't be hurt
+--   Stress         toggle 150-enemy waves (performance test)
 --   UnlockRebirth  allow a rebirth without losing a wave
 --   UnlockSlots    open all six wall slots
 
@@ -30,6 +31,7 @@ local function pushDevStats(player: Player, lane)
 	services.EconomyService:PushStats(player, {
 		devSpeed = lane.timeScale,
 		devInvincible = lane.cheatInvincible,
+		devStress = lane.enemyCountOverride > 0,
 	})
 end
 
@@ -54,7 +56,11 @@ local function run(player: Player, command: string, value: any)
 		services.EconomyService:AddCoins(player, value)
 	elseif command == "Invincible" then
 		lane.cheatInvincible = not lane.cheatInvincible
-		notify:FireClient(player, "[DEV] Unbreakable barricade " .. (if lane.cheatInvincible then "ON" else "OFF"))
+		notify:FireClient(player, "[DEV] Invincible " .. (if lane.cheatInvincible then "ON" else "OFF"))
+	elseif command == "Stress" then
+		lane.enemyCountOverride = if lane.enemyCountOverride > 0 then 0 else 150
+		WaveService:ResetLane(player, lane.wave)
+		notify:FireClient(player, "[DEV] Stress test " .. (if lane.enemyCountOverride > 0 then "ON: 150 enemies per wave" else "OFF"))
 	elseif command == "UnlockRebirth" then
 		local data = services.DataService:Get(player)
 		data.lostThisRun = true

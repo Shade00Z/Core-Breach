@@ -41,6 +41,15 @@ GearData.Levels = {
 	DamagePerLevel = 0.5, -- +50% of level-1 damage per level (Lv 3 = 2x damage)
 }
 
+-- Gray-box model shape for each kind of gear (used on the wall and above the crate)
+GearData.Shapes = {
+	Pistol = { size = Vector3.new(1, 1, 2.2), lift = 0 },
+	Rifle = { size = Vector3.new(0.8, 0.8, 4), lift = 0 },
+	Turret = { size = Vector3.new(2, 1.6, 2.6), lift = 0 },
+	Drone = { size = Vector3.new(1.8, 1.8, 1.8), lift = 2.5, ball = true },
+	Launcher = { size = Vector3.new(1.6, 1.6, 3.2), lift = 0 },
+} :: { [string]: { size: Vector3, lift: number, ball: boolean? } }
+
 local items: { Gear } = {
 	-- Common
 	{ id = "rusty_pistol", name = "Rusty Pistol", kind = "Pistol", rarity = "Common", damage = 4, fireRate = 1.5, splash = 0, price = 25 },

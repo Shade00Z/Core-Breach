@@ -28,6 +28,7 @@ export type PlayerData = {
 	coins: number,
 	totalCoins: number, -- lifetime coins collected
 	unlockedSlots: { [string]: boolean }, -- slot index -> open
+	digging: { [string]: number }, -- slot index -> pickaxe hits so far (paid, not yet dug out)
 	slots: { [string]: string }, -- slot index -> gear id mounted there
 	owned: { [string]: OwnedGear }, -- every gear the player owns, by gear id
 	stash: StashEntry?,
@@ -51,6 +52,7 @@ local function newData(): PlayerData
 		coins = 0,
 		totalCoins = 0,
 		unlockedSlots = {},
+		digging = {},
 		slots = {},
 		owned = {},
 		stash = nil,

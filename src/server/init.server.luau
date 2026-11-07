@@ -15,6 +15,7 @@ local ORDER = {
 	"CharacterService",
 	"WaveService",
 	"GearService",
+	"DigService",
 	"CrateService",
 	"ForgeService",
 	"AbilityService",

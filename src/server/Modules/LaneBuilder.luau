@@ -80,14 +80,10 @@ function LaneBuilder.Build(index: number, parent: Instance, attributes: { [strin
 	barricade:SetAttribute("HP", LaneConfig.BarricadeMaxHP)
 	barricade:SetAttribute("MaxHP", LaneConfig.BarricadeMaxHP)
 
-	-- Invisible wall above the barricade so the hero can't jump into the
-	-- enemy lane (a character can jump about 7 studs; the barricade is 4).
-	local blocker = makePart(model, "BarricadeBlocker", Vector3.new(W, 14, 2), at(0, 11, LaneConfig.BarricadeDistance), COLORS.Barricade)
-	blocker.Transparency = 1
-	blocker.CanQuery = false
-	blocker.CastShadow = false
+	-- The barricade is 4 studs tall, so the hero can jump over it (about 7
+	-- studs) into the lane to fight. DigService covers locked slots with rock.
 
-	-- Gear wall slots: 3 ledges per side, locked until dug out (week 3)
+	-- Gear wall slots: 3 ledges per side, locked until dug out
 	local slots = Instance.new("Folder")
 	slots.Name = "Slots"
 	slots.Parent = model

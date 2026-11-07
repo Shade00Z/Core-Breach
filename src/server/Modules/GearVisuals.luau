@@ -6,13 +6,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local GearData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GearData"))
 
-local SHAPES = {
-	Pistol = { size = Vector3.new(1, 1, 2.2), lift = 0 },
-	Rifle = { size = Vector3.new(0.8, 0.8, 4), lift = 0 },
-	Turret = { size = Vector3.new(2, 1.6, 2.6), lift = 0 },
-	Drone = { size = Vector3.new(1.8, 1.8, 1.8), lift = 2.5, ball = true },
-	Launcher = { size = Vector3.new(1.6, 1.6, 3.2), lift = 0 },
-}
+local SHAPES = GearData.Shapes
 
 local GearVisuals = {}
 

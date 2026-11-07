@@ -59,10 +59,12 @@ local LaneConfig = {
 	-- Enemy kinds (id = number sent to clients). Speed in studs per second.
 	-- breaksBarricade: reaching the barricade breaks it instantly, so the
 	-- wave is lost and restarts (bosses must be killed).
+	-- radius: how big it is (for hitting it with your pickaxe and getting hit)
+	-- heroDamage: damage to your hero when it touches you in the lane
 	Enemies = {
-		[1] = { name = "BurrowGrub", speed = 11 },
-		[2] = { name = "SkeletonMiner", speed = 8 },
-		[3] = { name = "LayerBoss", speed = 5, breaksBarricade = true },
+		[1] = { name = "BurrowGrub", speed = 11, radius = 1.8, heroDamage = 8 },
+		[2] = { name = "SkeletonMiner", speed = 8, radius = 1.2, heroDamage = 12 },
+		[3] = { name = "LayerBoss", speed = 5, radius = 4.5, heroDamage = 35, breaksBarricade = true },
 	},
 }
 

@@ -17,6 +17,7 @@ local remote: RemoteEvent
 local panel: Frame
 local speedButtons: { [number]: TextButton } = {}
 local invincibleButton: TextButton
+local stressButton: TextButton
 
 local BUTTON_COLOR = Color3.fromRGB(60, 60, 72)
 local ACTIVE_COLOR = Color3.fromRGB(60, 150, 90)
@@ -78,6 +79,7 @@ local function refresh()
 	end
 	invincibleButton.BackgroundColor3 = if stats.devInvincible then ACTIVE_COLOR else BUTTON_COLOR
 	invincibleButton.Text = if stats.devInvincible then "ON" else "OFF"
+	stressButton.BackgroundColor3 = if stats.devStress then ACTIVE_COLOR else BUTTON_COLOR
 end
 
 function DevController:Init(controllers)
@@ -154,7 +156,7 @@ function DevController:Init(controllers)
 		send("Coins", 1e6)
 	end)
 
-	local otherRow = makeRow("Unbreakable barricade  ·  Unlock", 4)
+	local otherRow = makeRow("Invincible  ·  Unlock", 4)
 	invincibleButton = makeButton(otherRow, "OFF", function()
 		send("Invincible")
 	end)
@@ -163,6 +165,11 @@ function DevController:Init(controllers)
 	end)
 	makeButton(otherRow, "All slots", function()
 		send("UnlockSlots")
+	end)
+
+	local testRow = makeRow("Performance", 5)
+	stressButton = makeButton(testRow, "150 foes", function()
+		send("Stress")
 	end)
 
 	toggle.Activated:Connect(function()

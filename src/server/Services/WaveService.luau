@@ -12,6 +12,9 @@
 --
 -- Week 2: GearService calls WaveService:DamageEnemy() and gets kill callbacks
 -- through WaveService.EnemyKilled.
+-- Week 3: the hero can jump into the lane. Enemies that touch the hero hurt
+-- it (LaneConfig.Enemies heroDamage); the hero's swings and Fire Blast also
+-- go through DamageEnemy.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -19,6 +22,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("ProgressionConfig"))
+local HeroConfig = require(Shared:WaitForChild("HeroConfig"))
 local LaneConfig = require(Shared:WaitForChild("LaneConfig"))
 local LaneSnapshot = require(Shared:WaitForChild("LaneSnapshot"))
 local DebugConfig = require(Shared:WaitForChild("DebugConfig"))
@@ -34,6 +38,7 @@ export type Enemy = {
 	dist: number, -- studs up the lane from the player end
 	lateral: number, -- studs left/right of the lane center
 	speed: number,
+	hitTimer: number, -- seconds until it can hit the hero again
 }
 
 type LaneState = "Intermission" | "Running" | "Failed"
@@ -58,7 +63,8 @@ export type Lane = {
 	nextId: number,
 	waveEnemyTotal: number,
 	timeScale: number, -- dev cheat: game speed for this lane (1 = normal)
-	cheatInvincible: boolean, -- dev cheat: barricade can't break
+	cheatInvincible: boolean, -- dev cheat: barricade can't break, hero can't be hurt
+	enemyCountOverride: number, -- dev stress test: enemies per wave (0 = normal)
 }
 
 local WaveService = {}
@@ -106,6 +112,7 @@ local function newEnemy(lane: Lane, kind: number, hp: number): Enemy
 		dist = LaneConfig.Length,
 		lateral = (math.random() * 2 - 1) * margin,
 		speed = stats.speed * (0.9 + math.random() * 0.2),
+		hitTimer = 0,
 	}
 end
 
@@ -134,7 +141,9 @@ local function startWave(lane: Lane)
 		end
 	else
 		local count = WaveService.EnemyCount(wave)
-		if lane.debug.EnemyCountOverride > 0 then
+		if lane.enemyCountOverride > 0 then
+			count = lane.enemyCountOverride
+		elseif lane.debug.EnemyCountOverride > 0 then
 			count = lane.debug.EnemyCountOverride
 		end
 		local swarm = WaveService.IsSwarm(wave)
@@ -184,6 +193,40 @@ end
 -- Simulation
 ------------------------------------------------------------------------
 
+-- Enemies touching the hero hurt it. Enemies only exist past the barricade,
+-- so this only happens when the hero has jumped into the lane.
+local function hurtHero(lane: Lane, dt: number)
+	local character = lane.owner.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local canHurt = humanoid ~= nil and root ~= nil and humanoid.Health > 0 and not lane.cheatInvincible
+	local heroLateral, heroDist = 0, 0
+	if canHurt then
+		local localPos = lane.origin:PointToObjectSpace((root :: BasePart).Position)
+		heroLateral, heroDist = localPos.X, -localPos.Z
+		-- In the air above them (e.g. on a wall ledge) is safe
+		canHurt = localPos.Y < 8
+	end
+	for _, enemy in lane.enemies do
+		if enemy.hitTimer > 0 then
+			enemy.hitTimer -= dt
+		elseif canHurt then
+			local stats = LaneConfig.Enemies[enemy.kind]
+			local reach = stats.radius + 1.5
+			local dx, dz = enemy.lateral - heroLateral, enemy.dist - heroDist
+			if dx * dx + dz * dz <= reach * reach then
+				enemy.hitTimer = HeroConfig.Health.EnemyHitCooldown
+				local hum = humanoid :: Humanoid
+				hum:TakeDamage(stats.heroDamage)
+				if hum.Health <= 0 then
+					notifyRemote:FireClient(lane.owner, "Knocked out! Back behind the barricade in " .. HeroConfig.Health.RespawnSeconds .. "s.")
+					canHurt = false
+				end
+			end
+		end
+	end
+end
+
 local function stepLane(lane: Lane, dt: number)
 	if lane.state ~= "Running" then
 		lane.stateTimer -= dt
@@ -218,6 +261,8 @@ local function stepLane(lane: Lane, dt: number)
 			lane.enemies[id] = nil
 		end
 	end
+
+	hurtHero(lane, dt)
 
 	if lane.debug.InvincibleBarricade or lane.cheatInvincible then
 		hp = math.max(hp, 1)
@@ -337,6 +382,7 @@ local function createLane(player: Player)
 		waveEnemyTotal = 0,
 		timeScale = 1,
 		cheatInvincible = false,
+		enemyCountOverride = 0,
 	}
 	WaveService.Lanes[player] = lane
 	laneCreatedEvent:Fire(lane)
@@ -393,6 +439,11 @@ end
 
 function WaveService:GetLane(player: Player): Lane?
 	return self.Lanes[player]
+end
+
+-- World position of an enemy (on the floor).
+function WaveService.EnemyPosition(lane: Lane, enemy: Enemy): Vector3
+	return lane.origin * Vector3.new(enemy.lateral, 0, -enemy.dist)
 end
 
 -- Clears the lane and starts it over at a wave (used by rebirth).

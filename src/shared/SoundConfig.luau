@@ -30,6 +30,18 @@ SoundConfig.Sounds = {
 	BossRoar = { id = 9113980319, volume = 0.5, voices = 1 }, -- ProSoundEffects monster roar
 	BossDown = { id = 120005759558278, volume = 0.5, voices = 1 }, -- Milestone
 
+	-- Hero
+	Swing = { id = 5789211405, volume = 0.35, pitch = { 0.95, 1.1 }, voices = 2 }, -- sword whoosh
+	MeleeHit = { id = 100970228713833, volume = 0.4, pitch = { 0.9, 1.1 }, maxPerSecond = 6, voices = 3 }, -- heavy punch
+	HeroHurt = { id = 99238364534468, volume = 0.45, pitch = { 0.9, 1.05 }, maxPerSecond = 4, voices = 2 }, -- hit
+	FireCast = { id = 9114446852, volume = 0.45, voices = 2 }, -- ProSoundEffects fire whoosh
+	FireExplode = { id = 113076931050699, volume = 0.55, voices = 2, range = { 30, 200 } }, -- fire explosion
+
+	-- Digging
+	RockHit = { id = 9118608146, volume = 0.5, pitch = { 0.9, 1.15 }, voices = 3, range = { 15, 120 } }, -- ProSoundEffects rock hits
+	RockBreak = { id = 9118588165, volume = 0.7, voices = 1, range = { 20, 160 } }, -- ProSoundEffects rock breaks
+	Purchase = { id = 134810204798705, volume = 0.4, voices = 1 }, -- cash register
+
 	-- Coins
 	CoinPickup = { id = 93529351909119, volume = 0.25, pitch = { 0.95, 1.2 }, maxPerSecond = 10, voices = 5 }, -- retro coin
 
