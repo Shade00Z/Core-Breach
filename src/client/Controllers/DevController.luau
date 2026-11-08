@@ -167,9 +167,31 @@ function DevController:Init(controllers)
 		send("UnlockSlots")
 	end)
 
-	local testRow = makeRow("Performance", 5)
+	local testRow = makeRow("Performance  ·  Hero  ·  Save", 5)
 	stressButton = makeButton(testRow, "150 foes", function()
 		send("Stress")
+	end)
+	makeButton(testRow, "+5 levels", function()
+		send("Levels", 5)
+	end)
+	makeButton(testRow, "Away 2h", function()
+		send("Away", 7200)
+	end)
+	-- Needs a second click within 3 seconds, so it's never hit by accident
+	local wipeButton: TextButton
+	local armedUntil = 0
+	wipeButton = makeButton(testRow, "Wipe save", function()
+		if os.clock() < armedUntil then
+			send("Wipe")
+			return
+		end
+		armedUntil = os.clock() + 3
+		wipeButton.Text = "Sure?"
+		wipeButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+		task.delay(3, function()
+			wipeButton.Text = "Wipe save"
+			wipeButton.BackgroundColor3 = BUTTON_COLOR
+		end)
 	end)
 
 	toggle.Activated:Connect(function()

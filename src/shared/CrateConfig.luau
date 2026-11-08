@@ -1,5 +1,5 @@
 -- CrateConfig
--- Core crate rolls: luck, odds, timing and the stash.
+-- Core crate rolls: luck, odds and timing.
 -- Base rarity weights live in GearData.Rarities.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -7,23 +7,24 @@ local GearData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("
 
 local CrateConfig = {
 	RollCooldown = 1.2, -- seconds between rolls (also the reveal time)
-	StashWaves = 5, -- a stashed item waits this many waves before it's gone
 	MaxRollDistance = 14, -- how close you must be to your crate to roll
 
-	-- Luck rises every LuckStepWaves waves by LuckPerStep.
+	-- Luck goes up by LuckPerStep each time you beat a new multiple of
+	-- LuckStepWaves (wave 10, 20, 30...) for the first time. It's based on your
+	-- best wave ever, so rebirths keep it.
 	LuckStepWaves = 10,
 	LuckPerStep = 0.15,
 }
 
--- Luck for a given wave. Wave 1-9 = 1.0, wave 10-19 = 1.15, and so on.
-function CrateConfig.LuckForWave(wave: number): number
-	return 1 + CrateConfig.LuckPerStep * math.floor(wave / CrateConfig.LuckStepWaves)
+-- Luck from the best wave you've ever beaten. Best 0-9 = 1.0, 10-19 = 1.15...
+function CrateConfig.LuckForBestWave(bestWave: number): number
+	return 1 + CrateConfig.LuckPerStep * math.floor(bestWave / CrateConfig.LuckStepWaves)
 end
 
--- Waves until the next luck increase.
-function CrateConfig.WavesToNextLuck(wave: number): number
+-- The wave you need to beat for the next luck increase.
+function CrateConfig.NextLuckWave(bestWave: number): number
 	local step = CrateConfig.LuckStepWaves
-	return step - (wave % step)
+	return (math.floor(bestWave / step) + 1) * step
 end
 
 -- Luck multiplies the weight of every rarity above Common, more for rarer

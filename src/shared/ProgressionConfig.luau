@@ -22,7 +22,7 @@ Config.Money = {
 -- REBIRTH -------------------------------------------------------------
 -- Available once you've LOST a wave this run (you've hit your limit).
 -- Rebirthing sends you back to wave 1 and keeps everything else: coins,
--- gear, gear levels, stash, opened slots. In return your coin multiplier
+-- gear, gear levels, opened slots. In return your coin multiplier
 -- goes up for good, so the next climb pays more and you get further.
 --
 -- How much it goes up depends on the best wave you beat this run:
@@ -55,6 +55,7 @@ Config.Ascension = {
 Config.Offline = {
 	MaxHours = 8,         -- earnings stop after this, so players return daily
 	Rate = 0.25,          -- 25% of active earning speed
+	AverageWaveSeconds = 32, -- "active speed" = what your current wave pays, once per this many seconds
 }
 
 -- FORMULAS ------------------------------------------------------------

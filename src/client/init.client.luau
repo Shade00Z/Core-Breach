@@ -12,7 +12,9 @@ local ORDER = {
 	"CombatController",
 	"CrateController",
 	"GearController",
+	"StatsController",
 	"RebirthController",
+	"OfflineController",
 	"DevController",
 }
 

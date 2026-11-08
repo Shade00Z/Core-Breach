@@ -9,8 +9,13 @@
 -- checks this itself (the client can't claim coins).
 -- Week 9: the Auto-Collect gamepass will simply collect drops instantly.
 --
+-- Offline earnings: while you're away your wall keeps earning at
+-- Config.Offline.Rate (25%) of what your current wave pays, for up to
+-- Config.Offline.MaxHours (8). It waits in the save until you press Collect
+-- on the welcome-back popup.
+--
 -- Rebirth: unlocked once you LOSE a wave in a run. Rebirthing sends you back
--- to wave 1 and keeps your coins, gear, levels, stash and coins on the
+-- to wave 1 and keeps your coins, gear, hero level, opened slots and coins on the
 -- ground. Your coin multiplier goes up by Config.RebirthGain(best wave this
 -- run), so each climb pays more than the last and you get further.
 
@@ -27,6 +32,8 @@ local FXBatcher = require(script.Parent.Parent:WaitForChild("Modules"):WaitForCh
 local STATS_INTERVAL = 0.1 -- send coin updates at most 10 times a second
 local PICKUP_INTERVAL = 0.1 -- check for pickups 10 times a second
 local REBIRTH_COOLDOWN = 2 -- seconds, guards against double clicks
+local OFFLINE_MIN_SECONDS = 60 -- shorter absences don't earn anything
+local LAST_ONLINE_INTERVAL = 30 -- how often "last seen" is written (covers crashes)
 
 type Drop = { id: number, value: number, position: Vector3 }
 type DropState = { nextId: number, drops: { [number]: Drop }, count: number }
@@ -116,13 +123,6 @@ function EconomyService:Rebirth(player: Player): boolean
 	local data = DataService:Get(player)
 	local gain = Config.RebirthGain(data.runBestWave)
 	local reached = data.runBestWave
-
-	-- Keep the stash's remaining waves when the wave number resets
-	local lane = WaveService:GetLane(player)
-	if data.stash and lane then
-		local wavesLeft = math.max(1, data.stash.expiresAfterWave - lane.wave + 1)
-		data.stash.expiresAfterWave = wavesLeft
-	end
 
 	data.rebirths += 1
 	data.coinMultiplier += gain
@@ -223,6 +223,62 @@ local function checkPickups()
 end
 
 ------------------------------------------------------------------------
+-- Offline earnings
+------------------------------------------------------------------------
+
+-- Coins per second an active player earns at their current wave
+local function activeCoinRate(data): number
+	local lastCleared = math.max(1, (data.wave or 1) - 1)
+	return Config.CoinsForWave(lastCleared, data.coinMultiplier) / Config.Offline.AverageWaveSeconds
+end
+
+local function pushOffline(player: Player)
+	local data = DataService:Get(player)
+	EconomyService:PushStats(player, {
+		offline = if data.offlinePending >= 1
+			then { coins = math.floor(data.offlinePending), seconds = data.offlineSeconds }
+			else false,
+	})
+end
+
+-- Adds coins for the time since the player was last seen (call on join)
+function EconomyService:CheckOffline(player: Player)
+	local data = DataService:Get(player)
+	local now = os.time()
+	if data.lastOnline > 0 then
+		local away = now - data.lastOnline
+		if away >= OFFLINE_MIN_SECONDS then
+			local coins = Config.OfflineCoins(away, activeCoinRate(data))
+			if coins >= 1 then
+				local cap = Config.Offline.MaxHours * 3600
+				data.offlinePending += coins
+				data.offlineSeconds = math.min(cap, data.offlineSeconds + math.min(away, cap))
+			end
+		end
+	end
+	data.lastOnline = now
+	pushOffline(player)
+end
+
+local function collectOffline(player: Player)
+	local data = DataService:Get(player)
+	local coins = math.floor(data.offlinePending)
+	data.offlinePending = 0
+	data.offlineSeconds = 0
+	if coins > 0 then
+		EconomyService:AddCoins(player, coins)
+	end
+	pushOffline(player)
+end
+
+-- Dev cheat: pretend the player was away for this many seconds
+function EconomyService:SimulateAway(player: Player, seconds: number)
+	local data = DataService:Get(player)
+	data.lastOnline = os.time() - seconds
+	self:CheckOffline(player)
+end
+
+------------------------------------------------------------------------
 
 function EconomyService:Init(allServices)
 	services = allServices
@@ -271,13 +327,34 @@ function EconomyService:Start()
 		EconomyService:Rebirth(player)
 	end)
 
-	Players.PlayerAdded:Connect(function(player)
-		dirty[player] = true
-	end)
-	for _, player in Players:GetPlayers() do
+	Remotes.Event("CollectOffline").OnServerEvent:Connect(collectOffline)
+
+	-- Once a player's save loads: send their coins and rebirth info, and pay
+	-- out anything they earned while away
+	local function onLoaded(player: Player)
 		dirty[player] = true
 		pushRebirthStats(player)
+		EconomyService:CheckOffline(player)
 	end
+	DataService.Loaded:Connect(onLoaded)
+	for _, player in Players:GetPlayers() do
+		if DataService:IsLoaded(player) then
+			task.spawn(onLoaded, player)
+		end
+	end
+	DataService.Leaving:Connect(function(_, data)
+		data.lastOnline = os.time()
+	end)
+	task.spawn(function()
+		while true do
+			task.wait(LAST_ONLINE_INTERVAL)
+			for _, player in Players:GetPlayers() do
+				if DataService:IsLoaded(player) then
+					DataService:Get(player).lastOnline = os.time()
+				end
+			end
+		end
+	end)
 	Players.PlayerRemoving:Connect(function(player)
 		dirty[player] = nil
 		dropStates[player] = nil
@@ -298,7 +375,7 @@ function EconomyService:Start()
 		end
 		statsTimer = 0
 		for player in dirty do
-			if player.Parent == Players then
+			if player.Parent == Players and DataService:IsLoaded(player) then
 				statsRemote:FireClient(player, { coins = DataService:Get(player).coins })
 			end
 			dirty[player] = nil

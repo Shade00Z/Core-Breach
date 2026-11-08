@@ -11,6 +11,9 @@
 --   Coins n        add n coins
 --   Invincible     toggle an unbreakable barricade and a hero that can't be hurt
 --   Stress         toggle 150-enemy waves (performance test)
+--   Levels n       gain n hero levels
+--   Away n         pretend you were away n seconds (offline earnings popup)
+--   Wipe           erase your save and kick you (rejoin to start fresh)
 --   UnlockRebirth  allow a rebirth without losing a wave
 --   UnlockSlots    open all six wall slots
 
@@ -57,6 +60,14 @@ local function run(player: Player, command: string, value: any)
 	elseif command == "Invincible" then
 		lane.cheatInvincible = not lane.cheatInvincible
 		notify:FireClient(player, "[DEV] Invincible " .. (if lane.cheatInvincible then "ON" else "OFF"))
+	elseif command == "Levels" and type(value) == "number" and value >= 1 and value <= 100 then
+		services.CharacterService:AddLevels(player, math.floor(value))
+	elseif command == "Away" and type(value) == "number" and value >= 60 and value <= 86400 then
+		services.EconomyService:SimulateAway(player, math.floor(value))
+		notify:FireClient(player, "[DEV] Pretended you were away " .. math.floor(value / 60) .. " minutes")
+	elseif command == "Wipe" then
+		services.DataService:Wipe(player)
+		return
 	elseif command == "Stress" then
 		lane.enemyCountOverride = if lane.enemyCountOverride > 0 then 0 else 150
 		WaveService:ResetLane(player, lane.wave)

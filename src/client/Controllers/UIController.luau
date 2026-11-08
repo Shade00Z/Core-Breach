@@ -32,8 +32,7 @@ UIController.Stats = {
 	coins = 0,
 	dps = 0,
 	luck = 1,
-	luckIn = 10,
-	stash = false,
+	luckAt = 10,
 	rebirths = 0,
 	coinMultiplier = 1,
 	runBestWave = 0,
@@ -54,6 +53,9 @@ local lastBossHealth = 0
 local luckLabel: TextLabel
 local coinLabel: TextLabel
 local dpsLabel: TextLabel
+local levelLabel: TextLabel
+local xpFill: Frame
+local xpText: TextLabel
 local debugLabel: TextLabel
 local toastList: Frame
 local toastCount = 0
@@ -106,7 +108,20 @@ local function refreshStats()
 		dpsText ..= string.format("  ·  Coins x%.2f  ·  Record: wave %d", stats.coinMultiplier or 1, stats.bestWaveEver or 0)
 	end
 	dpsLabel.Text = dpsText
-	luckLabel.Text = string.format("Luck x%.2f  ·  up in %d waves", stats.luck or 1, stats.luckIn or 10)
+
+	-- Hero level and XP bar
+	local hero = stats.hero
+	if type(hero) == "table" then
+		levelLabel.Text = "Lv " .. hero.level
+		if hero.xpNeeded > 0 then
+			xpFill.Size = UDim2.new(math.clamp(hero.xp / hero.xpNeeded, 0, 1), 0, 1, 0)
+			xpText.Text = Format.Number(math.floor(hero.xp)) .. " / " .. Format.Number(hero.xpNeeded) .. " XP"
+		else
+			xpFill.Size = UDim2.new(1, 0, 1, 0)
+			xpText.Text = "MAX LEVEL (this layer)"
+		end
+	end
+	luckLabel.Text = string.format("Luck x%.2f  ·  next: beat wave %d", stats.luck or 1, stats.luckAt or 10)
 end
 
 -- Show a short message at the bottom of the screen.
@@ -229,6 +244,29 @@ function UIController:Init(controllers)
 	coinLabel.TextColor3 = Color3.fromRGB(255, 215, 70)
 	dpsLabel = makeLabel(gui, UDim2.new(0, 420, 0, 20), UDim2.new(0, 14, 0, 92), 17)
 	dpsLabel.TextXAlignment = Enum.TextXAlignment.Left
+	-- Under that: hero level and XP bar
+	levelLabel = makeLabel(gui, UDim2.new(0, 56, 0, 20), UDim2.new(0, 14, 0, 114), 17)
+	levelLabel.TextXAlignment = Enum.TextXAlignment.Left
+	levelLabel.TextColor3 = Color3.fromRGB(140, 210, 255)
+	levelLabel.Text = "Lv 1"
+	local xpBack = Instance.new("Frame")
+	xpBack.Name = "XPBar"
+	xpBack.Position = UDim2.new(0, 72, 0, 117)
+	xpBack.Size = UDim2.new(0, 170, 0, 14)
+	xpBack.BackgroundColor3 = Color3.fromRGB(25, 30, 45)
+	xpBack.BackgroundTransparency = 0.2
+	xpBack.BorderSizePixel = 0
+	xpBack.Parent = gui
+	Instance.new("UICorner", xpBack).CornerRadius = UDim.new(0, 7)
+	xpFill = Instance.new("Frame")
+	xpFill.Size = UDim2.new(0, 0, 1, 0)
+	xpFill.BackgroundColor3 = Color3.fromRGB(80, 170, 255)
+	xpFill.BorderSizePixel = 0
+	xpFill.Parent = xpBack
+	Instance.new("UICorner", xpFill).CornerRadius = UDim.new(0, 7)
+	xpText = makeLabel(xpBack, UDim2.new(1, 0, 1, 0), UDim2.new(), 11)
+	xpText.ZIndex = 2
+
 	gainLabel = makeLabel(gui, UDim2.new(0, 160, 0, 26), UDim2.new(0, 150, 0, 61), 22)
 	gainLabel.TextXAlignment = Enum.TextXAlignment.Left
 	gainLabel.TextColor3 = Color3.fromRGB(150, 255, 120)
@@ -302,7 +340,7 @@ function UIController:Start()
 	Remotes.Event("Notify").OnClientEvent:Connect(function(text: string)
 		if type(text) == "string" then
 			UIController:Toast(text)
-			if text:find("leveled up") then
+			if text:find("leveled up") or text:find("^Level %d+!") then
 				SoundController:Play("LevelUp")
 			elseif text:find("New record") then
 				SoundController:Play("NewRecord")

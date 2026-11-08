@@ -70,11 +70,14 @@ export type Lane = {
 local WaveService = {}
 WaveService.Lanes = {} :: { [Player]: Lane }
 
+local services -- every service, set in Init
+
 -- Events other services listen to:
---   EnemyKilled(lane, enemy)  an enemy was killed (coins, loot)
+--   EnemyKilled(lane, enemy, source)  an enemy was killed (coins, XP, loot);
+--                             source = "hero" (your own swing or ability) or "gear"
 --   LaneCreated(lane)         a player's lane was built
 --   LaneRemoved(lane)         a player's lane was removed
---   WaveStarted(lane)         a wave began (luck, stash expiry)
+--   WaveStarted(lane)         a wave began (luck announcements)
 --   WaveCleared(lane, wave)   a wave was beaten (best wave for rebirth)
 --   WaveFailed(lane, wave)    the barricade broke; the lane drops back a wave
 -- (Signals, not BindableEvents: BindableEvents would pass a copy of the lane.)
@@ -126,6 +129,8 @@ local function startWave(lane: Lane)
 	table.clear(lane.spawnQueue)
 	setBarricade(lane, LaneConfig.BarricadeMaxHP)
 	lane.model:SetAttribute("Wave", lane.wave)
+	-- Saved, so you come back to this wave when you rejoin
+	services.DataService:Get(lane.owner).wave = lane.wave
 
 	local wave = lane.wave
 	local totalHp = Config.WaveHP(wave)
@@ -185,8 +190,10 @@ local function finishWave(lane: Lane)
 end
 
 -- Barricade damage from one enemy reaching it, based on the HP it has left.
+-- The Vitality stat makes the barricade stronger.
 local function leakDamage(lane: Lane, enemy: Enemy): number
-	return LaneConfig.BarricadeMaxHP * LaneConfig.LeakDamage * (enemy.hp / lane.waveTotalHp)
+	local strength = services.CharacterService:GetEffects(lane.owner).barricade
+	return LaneConfig.BarricadeMaxHP * LaneConfig.LeakDamage * (enemy.hp / lane.waveTotalHp) / strength
 end
 
 ------------------------------------------------------------------------
@@ -353,8 +360,10 @@ local function createLane(player: Player)
 	end
 	usedIndexes[index] = true
 
+	-- Start on your saved wave (or DebugConfig's StartWave when testing)
 	local debugSettings = DebugConfig.For(player)
-	local firstWave = math.max(1, debugSettings.StartWave)
+	local savedWave = services.DataService:Get(player).wave or 1
+	local firstWave = if debugSettings.StartWave > 1 then debugSettings.StartWave else math.max(1, savedWave)
 	local model, origin = LaneBuilder.Build(index, lanesFolder, {
 		OwnerUserId = player.UserId,
 		Debug = DebugConfig.Changes(debugSettings),
@@ -473,13 +482,13 @@ function WaveService:KillAll(player: Player)
 	end
 	table.clear(lane.spawnQueue)
 	for id in table.clone(lane.enemies) do
-		self:DamageEnemy(lane, id, math.huge)
+		self:DamageEnemy(lane, id, math.huge, "gear")
 	end
 end
 
 -- Damage an enemy in a lane. Returns true if it died.
--- Used by GearService (week 2) and AbilityService (week 3).
-function WaveService:DamageEnemy(lane: Lane, enemyId: number, amount: number): boolean
+-- source: "hero" for your own swings and abilities, "gear" (default) for the wall.
+function WaveService:DamageEnemy(lane: Lane, enemyId: number, amount: number, source: string?): boolean
 	local enemy = lane.enemies[enemyId]
 	if not enemy or amount <= 0 then
 		return false
@@ -487,7 +496,7 @@ function WaveService:DamageEnemy(lane: Lane, enemyId: number, amount: number): b
 	enemy.hp -= amount
 	if enemy.hp <= 0 then
 		lane.enemies[enemyId] = nil
-		killedEvent:Fire(lane, enemy)
+		killedEvent:Fire(lane, enemy, source or "gear")
 		return true
 	end
 	return false
@@ -510,7 +519,8 @@ local function hideSpawnLocations()
 	end
 end
 
-function WaveService:Init()
+function WaveService:Init(allServices)
+	services = allServices
 	hideSpawnLocations()
 	lanesFolder = Instance.new("Folder")
 	lanesFolder.Name = "Lanes"
@@ -520,10 +530,14 @@ function WaveService:Init()
 end
 
 function WaveService:Start()
-	Players.PlayerAdded:Connect(createLane)
+	-- Build a player's lane once their save has loaded
+	local DataService = services.DataService
+	DataService.Loaded:Connect(createLane)
 	Players.PlayerRemoving:Connect(removeLane)
 	for _, player in Players:GetPlayers() do
-		task.spawn(createLane, player)
+		if DataService:IsLoaded(player) then
+			task.spawn(createLane, player)
+		end
 	end
 
 	local sendInterval = 1 / LaneConfig.SnapshotRate

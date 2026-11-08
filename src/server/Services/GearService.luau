@@ -54,6 +54,7 @@ local GearService = {}
 local DataService
 local WaveService
 local EconomyService
+local CharacterService
 local states: { [Player]: State } = {}
 
 ------------------------------------------------------------------------
@@ -75,12 +76,14 @@ local function levelOf(data, gearId: string): number
 	return if owned then owned.level else 1
 end
 
+-- Total wall DPS, including the Command stat's damage and fire-rate bonus
 local function totalDps(state: State): number
 	local total = 0
 	for _, m in state.mounted do
 		total += GearData.EffectiveDPS(m.gear, m.level)
 	end
-	return total
+	local effects = CharacterService:GetEffects(state.lane.owner)
+	return total * effects.gearDamage * effects.gearRate
 end
 
 -- Sends total DPS and the player's gear (for the gear panel).
@@ -237,7 +240,7 @@ end
 
 local function fire(state: State, m: Mounted, target)
 	local lane = state.lane
-	local damage = GearData.Damage(m.gear, m.level)
+	local damage = GearData.Damage(m.gear, m.level) * CharacterService:GetEffects(lane.owner).gearDamage
 
 	-- Work out splash victims before dealing damage (kills remove enemies)
 	local victims = { target.id }
@@ -268,6 +271,7 @@ local function stepState(state: State, dt: number)
 		return
 	end
 	dt *= lane.timeScale or 1
+	local rateBonus = CharacterService:GetEffects(lane.owner).gearRate -- Command
 	for _, m in state.mounted do
 		m.cooldown -= dt
 		local shots = 0
@@ -278,7 +282,7 @@ local function stepState(state: State, dt: number)
 				break
 			end
 			fire(state, m, target)
-			m.cooldown += 1 / m.gear.fireRate
+			m.cooldown += 1 / (m.gear.fireRate * rateBonus)
 			shots += 1
 		end
 	end
@@ -490,10 +494,19 @@ function GearService:GetTotalDps(player: Player): number
 	return if state then totalDps(state) else 0
 end
 
+-- Re-send the DPS shown on the HUD (after the Command stat changes)
+function GearService:RefreshDps(player: Player)
+	local state = states[player]
+	if state then
+		pushDps(player, state)
+	end
+end
+
 function GearService:Init(services)
 	DataService = services.DataService
 	WaveService = services.WaveService
 	EconomyService = services.EconomyService
+	CharacterService = services.CharacterService
 end
 
 function GearService:Start()

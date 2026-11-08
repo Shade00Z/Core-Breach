@@ -1,23 +1,34 @@
 -- DataService
--- Every player's game data, in one table per player.
+-- Every player's saved game data, loaded and saved with ProfileStore
+-- (Modules/ProfileStore). ProfileStore "session locks" each save, so the same
+-- account can't be loaded on two servers at once (no duplicated items from
+-- joining on two devices). Joining somewhere else ends the old session.
 --
--- Week 2: data lives in memory only (it resets when you leave).
--- Week 4: the same API saves and loads with ProfileStore, so nothing that
--- uses DataService has to change.
+-- When a player joins, their data loads first; then DataService.Loaded fires
+-- and the rest of the game (lane, gear, crate...) is set up from it.
+-- Other services read and change the table from DataService:Get(player)
+-- directly; ProfileStore saves it every few minutes and when they leave.
 --
--- Keys are strings (e.g. slots["1"]) because Roblox DataStores can't save
--- tables with gaps in their number keys.
+-- Studio playtests use a separate save ("_Studio") so testing never touches
+-- real players' data. Without "Enable Studio Access to API Services" (Game
+-- Settings > Security), ProfileStore keeps data in memory only, and every
+-- playtest starts fresh.
+--
+-- Keys are strings (e.g. slots["1"]) because Roblox can't save tables with
+-- gaps in their number keys.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
-local LaneConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("LaneConfig"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local LaneConfig = require(Shared:WaitForChild("LaneConfig"))
+local Signal = require(Shared:WaitForChild("Signal"))
+local ProfileStore = require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("ProfileStore"))
 
-export type StashEntry = {
-	gearId: string,
-	price: number,
-	expiresAfterWave: number,
-}
+-- Change the version suffix only to start everyone over (it's a new save).
+local STORE_NAME = if RunService:IsStudio() then "PlayerData_Studio_v1" else "PlayerData_v1"
+local LOAD_WAIT_LIMIT = 30 -- seconds :Get() waits for a joining player's data
 
 export type OwnedGear = {
 	level: number,
@@ -28,11 +39,16 @@ export type PlayerData = {
 	coins: number,
 	totalCoins: number, -- lifetime coins collected
 	unlockedSlots: { [string]: boolean }, -- slot index -> open
-	digging: { [string]: number }, -- slot index -> pickaxe hits so far (paid, not yet dug out)
+	digging: { [string]: number }, -- slot index -> dig progress so far (paid, not yet dug out)
 	slots: { [string]: string }, -- slot index -> gear id mounted there
 	owned: { [string]: OwnedGear }, -- every gear the player owns, by gear id
-	stash: StashEntry?,
 	totalRolls: number,
+	wave: number, -- the wave you're on (you return to it when you rejoin)
+
+	-- Hero
+	level: number,
+	xp: number, -- XP toward the next level
+	stats: { [string]: number }, -- stat id -> points spent
 
 	-- Rebirth
 	rebirths: number,
@@ -42,13 +58,14 @@ export type PlayerData = {
 	recordAnnounced: boolean, -- "New record" already shown this run
 	bestWaveEver: number,
 	discovered: { [string]: boolean }, -- every gear ever owned (kept through rebirths)
+
+	-- Offline earnings
+	lastOnline: number, -- os.time() when last seen playing (0 = never)
+	offlinePending: number, -- offline coins earned but not collected yet
+	offlineSeconds: number, -- how long away those coins cover
 }
 
-local DataService = {}
-
-local cache: { [Player]: PlayerData } = {}
-
-local function newData(): PlayerData
+local function newTemplate(): PlayerData
 	local data: PlayerData = {
 		coins = 0,
 		totalCoins = 0,
@@ -56,8 +73,11 @@ local function newData(): PlayerData
 		digging = {},
 		slots = {},
 		owned = {},
-		stash = nil,
 		totalRolls = 0,
+		wave = 1,
+		level = 1,
+		xp = 0,
+		stats = { power = 0, command = 0, excavation = 0, fortune = 0, vitality = 0 },
 		rebirths = 0,
 		coinMultiplier = 1,
 		runBestWave = 0,
@@ -65,38 +85,111 @@ local function newData(): PlayerData
 		recordAnnounced = false,
 		bestWaveEver = 0,
 		discovered = {},
+		lastOnline = 0,
+		offlinePending = 0,
+		offlineSeconds = 0,
 	}
 	for _, slotIndex in LaneConfig.StarterSlots do
 		data.unlockedSlots[tostring(slotIndex)] = true
 	end
-	DataService.GiveStarterGear(data)
-	return data
-end
-
--- Puts the starter gear on the wall (new players, and after a rebirth).
-function DataService.GiveStarterGear(data: PlayerData)
-	table.clear(data.slots)
-	table.clear(data.owned)
 	for slotIndex, gearId in LaneConfig.StarterGear do
 		data.slots[tostring(slotIndex)] = gearId
 		data.owned[gearId] = { level = 1, copies = 0 }
 		data.discovered[gearId] = true
 	end
-end
-
--- The player's data. Created on first use.
-function DataService:Get(player: Player): PlayerData
-	local data = cache[player]
-	if not data then
-		data = newData()
-		cache[player] = data
-	end
 	return data
 end
 
+local store = ProfileStore.New(STORE_NAME, newTemplate())
+
+local DataService = {}
+
+-- Fires (player, data) once a player's data has loaded
+DataService.Loaded = Signal.new()
+-- Fires (player, data) just before a player's data is saved for the last
+-- time (they're leaving), so services can write final values into it
+DataService.Leaving = Signal.new()
+
+local profiles: { [Player]: any } = {}
+
+local function loadPlayer(player: Player)
+	local profile = store:StartSessionAsync("Player_" .. player.UserId, {
+		Cancel = function()
+			return player.Parent ~= Players
+		end,
+	})
+	if not profile then
+		if player.Parent == Players then
+			player:Kick("Your save couldn't be loaded. Please rejoin in a moment.")
+		end
+		return
+	end
+
+	profile:AddUserId(player.UserId) -- GDPR: lets Roblox data-deletion requests find this save
+	profile:Reconcile() -- adds fields that are new since this save was made
+
+	profile.OnSessionEnd:Connect(function()
+		profiles[player] = nil
+		if player.Parent == Players then
+			player:Kick("Your game was opened somewhere else. Please rejoin.")
+		end
+	end)
+
+	if player.Parent ~= Players then
+		profile:EndSession() -- left while loading
+		return
+	end
+	profiles[player] = profile
+	DataService.Loaded:Fire(player, profile.Data)
+end
+
+function DataService:IsLoaded(player: Player): boolean
+	return profiles[player] ~= nil
+end
+
+-- The player's data. If they're still loading, waits for it. Every service
+-- normally only calls this after Loaded, so the wait is just a safety net.
+function DataService:Get(player: Player): PlayerData
+	local profile = profiles[player]
+	if not profile then
+		local started = os.clock()
+		while not profiles[player] and player.Parent == Players and os.clock() - started < LOAD_WAIT_LIMIT do
+			task.wait(0.1)
+		end
+		profile = profiles[player]
+		if not profile then
+			-- Gone or never loaded: a throwaway table so callers don't error
+			return newTemplate()
+		end
+	end
+	return profile.Data
+end
+
+-- Dev only: erase a player's save and send them out so they rejoin fresh.
+function DataService:Wipe(player: Player)
+	local profile = profiles[player]
+	if not profile then
+		return
+	end
+	profile.Data = newTemplate()
+	profiles[player] = nil
+	profile:EndSession()
+	player:Kick("Save wiped. Rejoin (or press Play again) to start fresh.")
+end
+
 function DataService:Start()
+	Players.PlayerAdded:Connect(loadPlayer)
+	for _, player in Players:GetPlayers() do
+		task.spawn(loadPlayer, player)
+	end
 	Players.PlayerRemoving:Connect(function(player)
-		cache[player] = nil
+		local profile = profiles[player]
+		if not profile then
+			return
+		end
+		DataService.Leaving:Fire(player, profile.Data)
+		profiles[player] = nil
+		profile:EndSession() -- saves and releases the session lock
 	end)
 end
 

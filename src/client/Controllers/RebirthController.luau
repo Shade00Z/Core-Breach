@@ -60,7 +60,7 @@ local function refresh()
 	end
 	if confirm.Visible then
 		confirmText.Text = string.format(
-			"You beat wave %d this run (record: wave %d).\nCoins: x%.2f -> x%.2f\n\nYou go back to wave 1.\nYou keep your coins, gear and stash.",
+			"You beat wave %d this run (record: wave %d).\nCoins: x%.2f -> x%.2f\n\nYou go back to wave 1.\nYou keep your coins, gear, opened slots and hero level.",
 			best,
 			stats.bestWaveEver or best,
 			current,

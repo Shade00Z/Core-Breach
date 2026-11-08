@@ -1,7 +1,8 @@
 -- DigService
 -- Locked wall slots are buried behind rock. To open one:
 --   1. Walk up to the rock and press E (or tap the prompt) to pay its price.
---   2. Swing your pickaxe at it until it breaks (HeroConfig.Dig.HitsToBreak).
+--   2. Swing your pickaxe at it until it breaks (HeroConfig.Dig.HitsToBreak
+--      swings; fewer with the Excavation stat).
 -- The slot then opens and your strongest spare gear is mounted on it.
 --
 -- Prices go up with each slot you dig ($150, $1.5K, $15K, $150K), in any
@@ -86,8 +87,13 @@ local function refreshRocks(player: Player)
 		if hits then
 			rock:SetAttribute("Paid", true)
 			rock:SetAttribute("DigHits", hits)
+			-- Size matches the saved progress (after rejoining)
+			local lane = services.WaveService:GetLane(player)
+			if lane then
+				placeRock(lane, rock, slotIndex, math.min(1, hits / HeroConfig.Dig.HitsToBreak))
+			end
 			rock.Color = PAID_COLOR
-			setLabel(rock, string.format("Swing to dig!  %d / %d", hits, HeroConfig.Dig.HitsToBreak))
+			setLabel(rock, string.format("Swing to dig!  %d%%", math.floor(100 * hits / HeroConfig.Dig.HitsToBreak)))
 			if prompt then
 				prompt.Enabled = false
 			end
@@ -174,7 +180,7 @@ function DigService:Hit(player: Player, origin: Vector3, look: Vector3, fighting
 				end
 				return false
 			end
-			hits += 1
+			hits += services.CharacterService:GetEffects(player).digPower -- Excavation
 			data.digging[key] = hits
 			local needed = HeroConfig.Dig.HitsToBreak
 			if hits >= needed then
@@ -186,7 +192,7 @@ function DigService:Hit(player: Player, origin: Vector3, look: Vector3, fighting
 			else
 				rock:SetAttribute("DigHits", hits)
 				placeRock(services.WaveService:GetLane(player), rock, slotIndex, hits / needed)
-				setLabel(rock, string.format("Swing to dig!  %d / %d", hits, needed))
+				setLabel(rock, string.format("Swing to dig!  %d%%", math.floor(100 * hits / needed)))
 			end
 			return true
 		end

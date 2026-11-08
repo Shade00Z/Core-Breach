@@ -1,5 +1,6 @@
 -- CrateController
--- The crate reveal panel (Buy / Skip / Stash) and the stash panel.
+-- The crate reveal panel (Buy / Skip). A roll waits until you choose, so
+-- you can walk off and save up for it.
 -- Rolling happens on the server: walk up to your crate and press E (or tap
 -- the prompt on mobile). The server sends back what you rolled.
 -- Walk away with a reveal still open and the panel slides off screen; the
@@ -66,11 +67,6 @@ local ownedLabel: TextLabel
 local priceLabel: TextLabel
 local buyButton: TextButton
 local skipButton: TextButton
-local stashButton: TextButton
-
-local stashPanel: Frame
-local stashLabel: TextLabel
-local stashBuyButton: TextButton
 
 type Ownership = { level: number, copies: number, needed: number, maxed: boolean }
 local current: { gearId: string, price: number, owned: Ownership?, revealed: boolean }? = nil
@@ -145,7 +141,6 @@ local function refreshButtons()
 			buyButton.Text = "Need " .. Format.Number(math.ceil(current.price - coins))
 			setButtonEnabled(buyButton, false)
 		end
-		setButtonEnabled(stashButton, not stats.stash)
 	end
 end
 
@@ -317,7 +312,7 @@ local function showGear(gearId: string, price: number)
 	statsLabel.Text = string.format("%s  ·  %s DPS%s", gear.kind, Format.Number(GearData.DPS(gear, if owned then owned.level else 1)), splash)
 	ownedLabel.Text, ownedLabel.TextColor3 = ownedText(gear, owned)
 	priceLabel.Text = "$ " .. Format.Number(price)
-	buyButton.Visible, skipButton.Visible, stashButton.Visible = true, true, true
+	buyButton.Visible, skipButton.Visible = true, true
 	refreshButtons()
 	if current then
 		current.revealed = true
@@ -437,7 +432,7 @@ local function onResult(result)
 
 	-- Suspense: cycle rarity colors, longer for rarer pulls
 	SoundController:Play("RollStart")
-	buyButton.Visible, skipButton.Visible, stashButton.Visible = false, false, false
+	buyButton.Visible, skipButton.Visible = false, false
 	updatePreview()
 	rarityLabel.Text = "ROLLING..."
 	nameLabel.Text = "?"
@@ -486,29 +481,6 @@ local function onResult(result)
 end
 
 ------------------------------------------------------------------------
--- Stash panel
-------------------------------------------------------------------------
-
-local function refreshStash()
-	local stash = UIController.Stats.stash
-	if type(stash) ~= "table" then
-		stashPanel.Visible = false
-		return
-	end
-	local gear = GearData.Get(stash.gearId)
-	if not gear then
-		stashPanel.Visible = false
-		return
-	end
-	stashPanel.Visible = true
-	stashLabel.Text = string.format("Stash: %s  ($ %s)  ·  %d waves left", gear.name, Format.Number(stash.price), stash.wavesLeft or 0)
-	stashLabel.TextColor3 = GearData.Rarities[gear.rarity].color
-	local coins = UIController.Stats.coins or 0
-	stashBuyButton.Text = if coins >= stash.price then "Buy" else ("Need " .. Format.Number(math.ceil(stash.price - coins)))
-	setButtonEnabled(stashBuyButton, coins >= stash.price)
-end
-
-------------------------------------------------------------------------
 
 function CrateController:Init(controllers)
 	UIController = controllers.UIController
@@ -549,27 +521,11 @@ function CrateController:Init(controllers)
 	priceLabel = label(panel, UDim2.new(1, 0, 0, 28), UDim2.new(0, 0, 0, 114), 26)
 	priceLabel.TextColor3 = Color3.fromRGB(255, 215, 70)
 
-	local w, gap = 104, 10
-	local left = (380 - (3 * w + 2 * gap)) / 2
+	-- Two big buttons side by side
+	local w, gap = 160, 12
+	local left = (380 - (2 * w + gap)) / 2
 	buyButton = button(panel, "Buy", Color3.fromRGB(60, 170, 80), UDim2.new(0, w, 0, 52), UDim2.new(0, left, 1, -66))
 	skipButton = button(panel, "Skip", Color3.fromRGB(110, 110, 120), UDim2.new(0, w, 0, 52), UDim2.new(0, left + w + gap, 1, -66))
-	stashButton = button(panel, "Stash", Color3.fromRGB(60, 120, 200), UDim2.new(0, w, 0, 52), UDim2.new(0, left + 2 * (w + gap), 1, -66))
-
-	-- Stash panel, left side under coins
-	stashPanel = Instance.new("Frame")
-	stashPanel.Name = "StashPanel"
-	stashPanel.Position = UDim2.new(0, 12, 0, 122)
-	stashPanel.Size = UDim2.new(0, 330, 0, 76)
-	stashPanel.BackgroundColor3 = Color3.fromRGB(24, 22, 28)
-	stashPanel.BackgroundTransparency = 0.2
-	stashPanel.Visible = false
-	stashPanel.Parent = gui
-	Instance.new("UICorner", stashPanel).CornerRadius = UDim.new(0, 10)
-	stashLabel = label(stashPanel, UDim2.new(1, -16, 0, 22), UDim2.new(0, 8, 0, 6), 15)
-	stashLabel.TextXAlignment = Enum.TextXAlignment.Left
-	stashLabel.TextScaled = true
-	stashBuyButton = button(stashPanel, "Buy", Color3.fromRGB(60, 170, 80), UDim2.new(0, 150, 0, 36), UDim2.new(0, 8, 0, 34))
-	local dropButton = button(stashPanel, "Drop", Color3.fromRGB(150, 60, 60), UDim2.new(0, 150, 0, 36), UDim2.new(0, 170, 0, 34))
 
 	buyButton.Activated:Connect(function()
 		if current and buyButton.Active then
@@ -582,20 +538,6 @@ function CrateController:Init(controllers)
 			decisionRemote:FireServer("Skip")
 			hidePanel()
 		end
-	end)
-	stashButton.Activated:Connect(function()
-		if current and stashButton.Active then
-			decisionRemote:FireServer("Stash")
-			hidePanel()
-		end
-	end)
-	stashBuyButton.Activated:Connect(function()
-		if stashBuyButton.Active then
-			decisionRemote:FireServer("BuyStash")
-		end
-	end)
-	dropButton.Activated:Connect(function()
-		decisionRemote:FireServer("DropStash")
 	end)
 end
 
@@ -633,11 +575,7 @@ function CrateController:Start()
 	Remotes.Event("CrateResult").OnClientEvent:Connect(function(result)
 		task.spawn(onResult, result)
 	end)
-	UIController.StatsUpdated:Connect(function()
-		refreshButtons()
-		refreshStash()
-	end)
-	refreshStash()
+	UIController.StatsUpdated:Connect(refreshButtons)
 end
 
 -- For the odds screen (week 9): current odds at your luck.

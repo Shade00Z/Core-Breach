@@ -4,11 +4,11 @@
 --   Buy       pay the price and get the gear (GearService:Give). Gear you
 --             already own gains a copy toward its next level instead.
 --   Skip      throw it away and roll again
---   Stash     hold it for LaneConfig/CrateConfig.StashWaves waves while you save up
---   BuyStash  buy the stashed item later
---   DropStash throw away the stashed item
+-- Until you choose, the roll waits at the crate (walk away and it floats
+-- above it), so you can save up for something you can't afford yet.
 --
--- Rolls happen on the server only. Luck rises every 10 waves (CrateConfig).
+-- Rolls happen on the server only. Luck rises each time you beat a new
+-- multiple of 10 waves for the first time, and rebirths keep it (CrateConfig).
 -- Robux "skip cost" arrives in week 9; luck boosts are never sold for Robux.
 
 local Players = game:GetService("Players")
@@ -18,7 +18,6 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GearData = require(Shared:WaitForChild("GearData"))
 local CrateConfig = require(Shared:WaitForChild("CrateConfig"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
-local Format = require(Shared:WaitForChild("Format"))
 
 type Pending = { gearId: string, price: number }
 
@@ -28,43 +27,32 @@ local DataService
 local EconomyService
 local GearService
 local WaveService
+local CharacterService
 
 local rng = Random.new()
 local pending: { [Player]: Pending } = {}
 local lastRoll: { [Player]: number } = {}
-local luckAnnounced: { [Player]: number } = {}
+
 local resultRemote: RemoteEvent
 local notifyRemote: RemoteEvent
 
-local DECISIONS = { Buy = true, Skip = true, Stash = true, BuyStash = true, DropStash = true }
+local DECISIONS = { Buy = true, Skip = true }
+local luckSteps: { [Player]: number } = {} -- luck steps already earned (and announced)
 
 local function notify(player: Player, text: string)
 	notifyRemote:FireClient(player, text)
 end
 
-local function currentWave(player: Player): number
-	local lane = WaveService:GetLane(player)
-	return if lane then lane.wave else 1
-end
-
-local function stashInfo(player: Player)
-	local stash = DataService:Get(player).stash
-	if not stash then
-		return false -- "false" so the client knows the stash is now empty
-	end
-	return {
-		gearId = stash.gearId,
-		price = stash.price,
-		wavesLeft = math.max(0, stash.expiresAfterWave - currentWave(player) + 1),
-	}
+-- Your luck: from the best wave you've ever beaten, times the Fortune stat
+local function luckFor(player: Player): number
+	local best = DataService:Get(player).bestWaveEver
+	return CrateConfig.LuckForBestWave(best) * CharacterService:GetEffects(player).luck
 end
 
 local function pushCrateStats(player: Player)
-	local wave = currentWave(player)
 	EconomyService:PushStats(player, {
-		luck = CrateConfig.LuckForWave(wave),
-		luckIn = CrateConfig.WavesToNextLuck(wave),
-		stash = stashInfo(player),
+		luck = luckFor(player),
+		luckAt = CrateConfig.NextLuckWave(DataService:Get(player).bestWaveEver),
 	})
 end
 
@@ -123,7 +111,7 @@ function CrateService:Roll(player: Player)
 	end
 	lastRoll[player] = now
 
-	local luck = CrateConfig.LuckForWave(lane.wave)
+	local luck = luckFor(player)
 	local gear = pickGear(CrateConfig.PickRarity(luck, rng))
 	if not gear then
 		return
@@ -136,7 +124,6 @@ function CrateService:Roll(player: Player)
 end
 
 function CrateService:Decide(player: Player, choice: string)
-	local data = DataService:Get(player)
 	local roll = pending[player]
 
 	if choice == "Buy" then
@@ -151,49 +138,13 @@ function CrateService:Decide(player: Player, choice: string)
 			return
 		end
 		if not EconomyService:SpendCoins(player, roll.price) then
-			notify(player, "Not enough coins. Stash it and save up?")
+			notify(player, "Not enough coins yet. It'll wait at your crate while you save up.")
 			return
 		end
 		pending[player] = nil
 		notify(player, GearService:Give(player, roll.gearId))
 	elseif choice == "Skip" then
 		pending[player] = nil
-	elseif choice == "Stash" then
-		if not roll then
-			return
-		end
-		if data.stash then
-			notify(player, "Your stash is full. Buy or drop the stashed item first.")
-			return
-		end
-		data.stash = {
-			gearId = roll.gearId,
-			price = roll.price,
-			expiresAfterWave = currentWave(player) + CrateConfig.StashWaves - 1,
-		}
-		pending[player] = nil
-		local gear = GearData.Get(roll.gearId)
-		notify(player, (if gear then gear.name else "Item") .. " stashed for " .. CrateConfig.StashWaves .. " waves.")
-	elseif choice == "BuyStash" then
-		local stash = data.stash
-		if not stash then
-			return
-		end
-		local ok, reason = GearService:CanReceive(player, stash.gearId)
-		if not ok then
-			data.stash = nil
-			notify(player, reason or "You can't get that.")
-			pushCrateStats(player)
-			return
-		end
-		if not EconomyService:SpendCoins(player, stash.price) then
-			notify(player, "Not enough coins yet. You need " .. Format.Number(math.ceil(stash.price - data.coins)) .. " more.")
-			return
-		end
-		data.stash = nil
-		notify(player, GearService:Give(player, stash.gearId))
-	elseif choice == "DropStash" then
-		data.stash = nil
 	end
 
 	pushCrateStats(player)
@@ -222,27 +173,30 @@ local function setupLane(lane)
 			CrateService:Roll(player)
 		end
 	end)
+	luckSteps[lane.owner] = math.floor(DataService:Get(lane.owner).bestWaveEver / CrateConfig.LuckStepWaves)
 	pushCrateStats(lane.owner)
 end
 
-local function onWaveStarted(lane)
+-- Luck goes up when you beat a new multiple of 10 for the first time ever
+local function onWaveCleared(lane, cleared: number)
 	local player = lane.owner
-	local data = DataService:Get(player)
-	local stash = data.stash
-	if stash and lane.wave > stash.expiresAfterWave then
-		data.stash = nil
-		local gear = GearData.Get(stash.gearId)
-		notify(player, "Your stashed " .. (if gear then gear.name else "item") .. " expired.")
+	local steps = math.floor(cleared / CrateConfig.LuckStepWaves)
+	local earned = luckSteps[player] or math.floor(DataService:Get(player).bestWaveEver / CrateConfig.LuckStepWaves)
+	local leveledUp = steps > earned
+	if leveledUp then
+		luckSteps[player] = steps
 	end
-	-- Announce luck going up only the first time a wave is reached, not on retries
-	if lane.wave % CrateConfig.LuckStepWaves == 0 and lane.wave > (luckAnnounced[player] or 0) then
-		luckAnnounced[player] = lane.wave
-		notify(player, "Luck increased to x" .. string.format("%.2f", CrateConfig.LuckForWave(lane.wave)) .. "!")
-	end
-	pushCrateStats(player)
+	-- EconomyService records the new best wave from this same event, so
+	-- wait a moment before reading it
+	task.defer(function()
+		if leveledUp then
+			notify(player, "Luck increased to x" .. string.format("%.2f", luckFor(player)) .. "!")
+		end
+		pushCrateStats(player)
+	end)
 end
 
--- Re-sends luck and stash info (used after a rebirth changes the wave).
+-- Re-sends luck info (after a rebirth or a Fortune stat change).
 function CrateService:Refresh(player: Player)
 	pushCrateStats(player)
 end
@@ -252,6 +206,7 @@ function CrateService:Init(services)
 	EconomyService = services.EconomyService
 	GearService = services.GearService
 	WaveService = services.WaveService
+	CharacterService = services.CharacterService
 	resultRemote = Remotes.Event("CrateResult")
 	notifyRemote = Remotes.Event("Notify")
 end
@@ -267,7 +222,7 @@ function CrateService:Start()
 	end)
 
 	WaveService.LaneCreated:Connect(setupLane)
-	WaveService.WaveStarted:Connect(onWaveStarted)
+	WaveService.WaveCleared:Connect(onWaveCleared)
 	for _, lane in WaveService.Lanes do
 		if not lane.model:FindFirstChild("Crate"):FindFirstChildWhichIsA("ProximityPrompt") then
 			setupLane(lane)
@@ -277,7 +232,7 @@ function CrateService:Start()
 	Players.PlayerRemoving:Connect(function(player)
 		pending[player] = nil
 		lastRoll[player] = nil
-		luckAnnounced[player] = nil
+		luckSteps[player] = nil
 	end)
 end
 

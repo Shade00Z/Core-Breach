@@ -90,8 +90,14 @@ local function flatLook(root: BasePart): Vector3
 	return if flat.Magnitude > 0.01 then flat.Unit else Vector3.new(0, 0, -1)
 end
 
-local function wallDps(): number
-	return UIController.Stats.dps or 0
+-- Your current swing and Fire Blast damage, as the server last sent them
+-- (they depend on your level and Power stat)
+local function heroDamage(): (number, number)
+	local hero = UIController.Stats.hero
+	if type(hero) == "table" then
+		return hero.swingDamage or 0, hero.fireBlastDamage or 0
+	end
+	return HeroConfig.SwingDamage(1), HeroConfig.FireBlastDamage(1)
 end
 
 local function enemyRadius(kind: number): number
@@ -208,7 +214,7 @@ end
 local function showSwingHits(root: BasePart)
 	local origin = root.Position
 	local look = flatLook(root)
-	local damage = HeroConfig.SwingDamage(wallDps())
+	local damage = heroDamage()
 	local hit = false
 	for _, enemy in EnemyRenderer:FindInRange(origin, HeroConfig.Swing.Range + MAX_ENEMY_RADIUS) do
 		local offset = Vector3.new(enemy.position.X - origin.X, 0, enemy.position.Z - origin.Z)
@@ -280,7 +286,7 @@ local function explode(position: Vector3)
 	TweenService:Create(blast, info, { Size = Vector3.new(diameter, diameter, diameter), Transparency = 1 }):Play()
 	Debris:AddItem(blast, 0.4)
 
-	local damage = HeroConfig.FireBlastDamage(wallDps())
+	local _, damage = heroDamage()
 	for _, enemy in EnemyRenderer:FindInRange(position, settings.SplashRadius + MAX_ENEMY_RADIUS) do
 		local dx, dz = enemy.position.X - position.X, enemy.position.Z - position.Z
 		local reach = settings.SplashRadius + enemyRadius(enemy.kind)

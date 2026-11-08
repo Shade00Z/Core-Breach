@@ -89,7 +89,7 @@ local function castFireBlast(player: Player, claimedTarget: number?)
 
 	local aimPoint = if targetId then WaveService.EnemyPosition(lane, lane.enemies[targetId]) else origin + look * settings.Range
 	local travel = Vector3.new(aimPoint.X - origin.X, 0, aimPoint.Z - origin.Z).Magnitude / settings.Speed
-	local damage = HeroConfig.FireBlastDamage(services.GearService:GetTotalDps(player))
+	local damage = services.CharacterService:FireBlastDamage(player)
 
 	task.delay(travel, function()
 		if WaveService:GetLane(player) ~= lane then
@@ -103,7 +103,7 @@ local function castFireBlast(player: Player, claimedTarget: number?)
 			local reach = settings.SplashRadius + LaneConfig.Enemies[enemy.kind].radius
 			local dx, dz = position.X - impact.X, position.Z - impact.Z
 			if dx * dx + dz * dz <= reach * reach then
-				WaveService:DamageEnemy(lane, id, damage)
+				WaveService:DamageEnemy(lane, id, damage, "hero")
 			end
 		end
 	end)

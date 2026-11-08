@@ -19,7 +19,9 @@ local EVENTS = {
 	-- Crate, digging, forge
 	"CrateRoll", -- client -> server: request a roll (week 2)
 	"CrateResult", -- server -> client: the item you rolled and its price (week 2)
-	"CrateDecision", -- client -> server: "Buy" | "Skip" | "Stash" (week 2)
+	"CrateDecision", -- client -> server: "Buy" | "Skip" (week 2)
+	"SpendStat", -- client -> server: (stat id, points) spend stat points (week 4)
+	"CollectOffline", -- client -> server: collect offline earnings (week 4)
 	"ForgeStrike", -- client -> server: forge a weapon with chosen loot (week 5)
 	"GearAction", -- client -> server: ("Equip" | "Unequip", gearId) from the gear panel
 
