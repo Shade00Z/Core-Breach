@@ -177,6 +177,14 @@ function DevController:Init(controllers)
 	makeButton(testRow, "Away 2h", function()
 		send("Away", 7200)
 	end)
+	local lootRow = makeRow("Mine & forge", 6)
+	makeButton(lootRow, "Loot pile", function()
+		send("Loot")
+	end)
+	makeButton(lootRow, "Pickaxe +1", function()
+		send("Pickaxe")
+	end)
+
 	-- Needs a second click within 3 seconds, so it's never hit by accident
 	local wipeButton: TextButton
 	local armedUntil = 0

@@ -14,7 +14,8 @@
 -- SwingWeapon. The server checks the cooldown and works out the hits itself
 -- from where your character is and which way it faces, so a player can't
 -- fake hits. A swing damages enemies in front of you and chips any wall rock
--- you've paid to dig (DigService).
+-- you've paid to dig (DigService), and ore veins in the mine (MiningService).
+-- The pickaxe head's color shows your pickaxe tier.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -24,6 +25,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local HeroConfig = require(Shared:WaitForChild("HeroConfig"))
 local LaneConfig = require(Shared:WaitForChild("LaneConfig"))
+local LootConfig = require(Shared:WaitForChild("LootConfig"))
 
 local HANDLE_COLOR = Color3.fromRGB(110, 75, 45)
 local HEAD_COLOR = Color3.fromRGB(90, 95, 105)
@@ -228,10 +230,24 @@ local function giveWeapon(character: Model)
 	model.Name = "PickaxeHammer"
 	local handle = weldedPart("Handle", Vector3.new(0.25, 0.25, 2.6), HANDLE_COLOR, Enum.Material.Wood, hand, handOffset)
 	handle.Parent = model
-	local head = weldedPart("Head", Vector3.new(0.6, 1.9, 0.7), HEAD_COLOR, Enum.Material.Metal, handle, CFrame.new(0, -0.35, -1.2))
+	local player = Players:GetPlayerFromCharacter(character)
+	local tier = if player and services.DataService:IsLoaded(player) then services.DataService:Get(player).pickaxeTier else 1
+	local pickaxe = LootConfig.Pickaxes[tier] or LootConfig.Pickaxes[1]
+	local head = weldedPart("Head", Vector3.new(0.6, 1.9, 0.7), pickaxe.color or HEAD_COLOR, Enum.Material.Metal, handle, CFrame.new(0, -0.35, -1.2))
 	head.Parent = model
 	model.PrimaryPart = handle
 	model.Parent = character
+end
+
+-- Recolor the pickaxe head after an upgrade
+function CharacterService:RefreshPickaxe(player: Player)
+	local character = player.Character
+	local model = character and character:FindFirstChild("PickaxeHammer")
+	local head = model and model:FindFirstChild("Head")
+	local pickaxe = LootConfig.Pickaxes[services.DataService:Get(player).pickaxeTier]
+	if head and head:IsA("BasePart") and pickaxe then
+		head.Color = pickaxe.color
+	end
 end
 
 local function onCharacter(player: Player, character: Model)
@@ -289,6 +305,9 @@ local function onSwing(player: Player)
 
 	-- Wall rock you're digging
 	services.DigService:Hit(player, origin, look, hitEnemy)
+
+	-- Ore veins in the mine
+	services.MiningService:Hit(player, origin)
 end
 
 ------------------------------------------------------------------------

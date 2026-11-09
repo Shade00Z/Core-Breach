@@ -39,6 +39,8 @@ export type Enemy = {
 	lateral: number, -- studs left/right of the lane center
 	speed: number,
 	hitTimer: number, -- seconds until it can hit the hero again
+	slowTimer: number, -- seconds left of a Slow effect (forge trait)
+	slowFactor: number, -- speed multiplier while slowed
 }
 
 type LaneState = "Intermission" | "Running" | "Failed"
@@ -116,7 +118,14 @@ local function newEnemy(lane: Lane, kind: number, hp: number): Enemy
 		lateral = (math.random() * 2 - 1) * margin,
 		speed = stats.speed * (0.9 + math.random() * 0.2),
 		hitTimer = 0,
+		slowTimer = 0,
+		slowFactor = 1,
 	}
+end
+
+-- How fast an enemy is moving right now (slowed or not)
+local function currentSpeed(enemy: Enemy): number
+	return if enemy.slowTimer > 0 then enemy.speed * enemy.slowFactor else enemy.speed
 end
 
 local function setBarricade(lane: Lane, hp: number)
@@ -257,7 +266,10 @@ local function stepLane(lane: Lane, dt: number)
 	local hp = lane.barricadeHp
 	local brokenBy: string? = nil
 	for id, enemy in lane.enemies do
-		enemy.dist -= enemy.speed * dt
+		if enemy.slowTimer > 0 then
+			enemy.slowTimer -= dt
+		end
+		enemy.dist -= currentSpeed(enemy) * dt
 		if enemy.dist <= stopAt then
 			if LaneConfig.Enemies[enemy.kind].breaksBarricade then
 				hp = 0
@@ -327,7 +339,7 @@ local function sendSnapshot(lane: Lane)
 	local index = 0
 	for _, enemy in lane.enemies do
 		local position = lane.origin * Vector3.new(enemy.lateral, 0, -enemy.dist)
-		LaneSnapshot.WriteEntry(buf, index, enemy.id, position.X, position.Z, enemy.hp / enemy.maxHp, enemy.kind, enemy.speed * lane.timeScale)
+		LaneSnapshot.WriteEntry(buf, index, enemy.id, position.X, position.Z, enemy.hp / enemy.maxHp, enemy.kind, currentSpeed(enemy) * lane.timeScale)
 		index += 1
 	end
 
@@ -448,6 +460,15 @@ end
 
 function WaveService:GetLane(player: Player): Lane?
 	return self.Lanes[player]
+end
+
+-- Slow an enemy down for a while (the forge's Slow trait).
+function WaveService:SlowEnemy(lane: Lane, enemyId: number, factor: number, seconds: number)
+	local enemy = lane.enemies[enemyId]
+	if enemy then
+		enemy.slowFactor = math.min(if enemy.slowTimer > 0 then enemy.slowFactor else 1, factor)
+		enemy.slowTimer = math.max(enemy.slowTimer, seconds)
+	end
 end
 
 -- World position of an enemy (on the floor).

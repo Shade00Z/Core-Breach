@@ -30,7 +30,6 @@ local WaveService
 local CharacterService
 
 local rng = Random.new()
-local pending: { [Player]: Pending } = {}
 local lastRoll: { [Player]: number } = {}
 
 local resultRemote: RemoteEvent
@@ -38,6 +37,16 @@ local notifyRemote: RemoteEvent
 
 local DECISIONS = { Buy = true, Skip = true }
 local luckSteps: { [Player]: number } = {} -- luck steps already earned (and announced)
+
+-- The roll waiting at your crate is part of your save, so it's still there
+-- after you leave and rejoin.
+local function getPending(player: Player): Pending?
+	return DataService:Get(player).pendingRoll
+end
+
+local function setPending(player: Player, roll: Pending?)
+	DataService:Get(player).pendingRoll = roll
+end
 
 local function notify(player: Player, text: string)
 	notifyRemote:FireClient(player, text)
@@ -99,7 +108,7 @@ function CrateService:Roll(player: Player)
 	end
 
 	-- A reveal is waiting for a decision: show it again instead of rolling
-	local waiting = pending[player]
+	local waiting = getPending(player)
 	if waiting then
 		sendResult(player, waiting, false)
 		return
@@ -118,13 +127,13 @@ function CrateService:Roll(player: Player)
 	end
 
 	local roll: Pending = { gearId = gear.id, price = gear.price }
-	pending[player] = roll
+	setPending(player, roll)
 	DataService:Get(player).totalRolls += 1
 	sendResult(player, roll, true)
 end
 
 function CrateService:Decide(player: Player, choice: string)
-	local roll = pending[player]
+	local roll = getPending(player)
 
 	if choice == "Buy" then
 		if not roll then
@@ -132,7 +141,7 @@ function CrateService:Decide(player: Player, choice: string)
 		end
 		local ok, reason = GearService:CanReceive(player, roll.gearId)
 		if not ok then
-			pending[player] = nil
+			setPending(player, nil)
 			notify(player, reason or "You can't get that.")
 			pushCrateStats(player)
 			return
@@ -141,10 +150,10 @@ function CrateService:Decide(player: Player, choice: string)
 			notify(player, "Not enough coins yet. It'll wait at your crate while you save up.")
 			return
 		end
-		pending[player] = nil
+		setPending(player, nil)
 		notify(player, GearService:Give(player, roll.gearId))
 	elseif choice == "Skip" then
-		pending[player] = nil
+		setPending(player, nil)
 	end
 
 	pushCrateStats(player)
@@ -175,6 +184,16 @@ local function setupLane(lane)
 	end)
 	luckSteps[lane.owner] = math.floor(DataService:Get(lane.owner).bestWaveEver / CrateConfig.LuckStepWaves)
 	pushCrateStats(lane.owner)
+
+	-- A roll you hadn't decided on last time is waiting at the crate again
+	local waiting = getPending(lane.owner)
+	if waiting then
+		if GearData.Get(waiting.gearId) then
+			sendResult(lane.owner, waiting, false)
+		else
+			setPending(lane.owner, nil) -- that gear no longer exists
+		end
+	end
 end
 
 -- Luck goes up when you beat a new multiple of 10 for the first time ever
@@ -230,7 +249,6 @@ function CrateService:Start()
 	end
 
 	Players.PlayerRemoving:Connect(function(player)
-		pending[player] = nil
 		lastRoll[player] = nil
 		luckSteps[player] = nil
 	end)

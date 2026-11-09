@@ -41,6 +41,7 @@ SoundConfig.Sounds = {
 	RockHit = { id = 9118608146, volume = 0.5, pitch = { 0.9, 1.15 }, voices = 3, range = { 15, 120 } }, -- ProSoundEffects rock hits
 	RockBreak = { id = 9118588165, volume = 0.7, voices = 1, range = { 20, 160 } }, -- ProSoundEffects rock breaks
 	Purchase = { id = 134810204798705, volume = 0.4, voices = 1 }, -- cash register
+	Anvil = { id = 9116651255, volume = 0.6, pitch = { 0.9, 1.05 }, voices = 2 }, -- ProSoundEffects metal hits (forge strike)
 
 	-- Coins
 	CoinPickup = { id = 93529351909119, volume = 0.25, pitch = { 0.95, 1.2 }, maxPerSecond = 10, voices = 5 }, -- retro coin

@@ -17,6 +17,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GearData = require(Shared:WaitForChild("GearData"))
+local LootConfig = require(Shared:WaitForChild("LootConfig"))
 local Modules = script.Parent.Parent:WaitForChild("Modules")
 local LaneBuilder = require(Modules:WaitForChild("LaneBuilder"))
 local GearVisuals = require(Modules:WaitForChild("GearVisuals"))
@@ -76,11 +77,28 @@ local function levelOf(data, gearId: string): number
 	return if owned then owned.level else 1
 end
 
--- Total wall DPS, including the Command stat's damage and fire-rate bonus
+-- Forge bonus for a gear the player owns: (damage multiplier, fire-rate multiplier)
+local function forgeBonus(data, gearId: string): (number, number)
+	local owned = data.owned[gearId]
+	return LootConfig.ForgeBonus(owned and owned.forge)
+end
+
+-- A gear's DPS including its level and forge bonus (not the Command stat)
+local function gearDps(data, gearId: string): number
+	local gear = GearData.Get(gearId)
+	if not gear then
+		return 0
+	end
+	local damage, rate = forgeBonus(data, gearId)
+	return GearData.EffectiveDPS(gear, levelOf(data, gearId)) * damage * rate
+end
+
+-- Total wall DPS, including forging and the Command stat
 local function totalDps(state: State): number
+	local data = DataService:Get(state.lane.owner)
 	local total = 0
 	for _, m in state.mounted do
-		total += GearData.EffectiveDPS(m.gear, m.level)
+		total += gearDps(data, m.gear.id)
 	end
 	local effects = CharacterService:GetEffects(state.lane.owner)
 	return total * effects.gearDamage * effects.gearRate
@@ -97,6 +115,8 @@ local function pushDps(player: Player, state: State?)
 			copies = o.copies,
 			needed = if maxed then 0 else GearData.CopiesToLevelUp(o.level),
 			maxed = maxed,
+			forge = if o.forge then { mult = o.forge.mult, traits = table.clone(o.forge.traits) } else nil,
+			dps = gearDps(data, gearId),
 		}
 	end
 	EconomyService:PushStats(player, {
@@ -142,7 +162,8 @@ local function mount(state: State, slotIndex: number, gearId: string, level: num
 
 	local lane = state.lane
 	local part = slotPart(lane, slotIndex)
-	GearVisuals.Build(gear, level, part, lane.origin.LookVector)
+	local owned = DataService:Get(lane.owner).owned[gearId]
+	GearVisuals.Build(gear, level, part, lane.origin.LookVector, owned and owned.forge)
 	part:SetAttribute("GearId", gearId)
 
 	local lateral, _, dist = LaneBuilder.SlotLocal(slotIndex)
@@ -166,7 +187,7 @@ local function autoMount(player: Player, gearId: string): string?
 	if not gear or mountedSlotOf(data, gearId) then
 		return nil
 	end
-	local myDps = GearData.EffectiveDPS(gear, levelOf(data, gearId))
+	local myDps = gearDps(data, gearId)
 
 	local function place(slotIndex: number)
 		data.slots[tostring(slotIndex)] = gearId
@@ -189,7 +210,7 @@ local function autoMount(player: Player, gearId: string): string?
 		local mountedId = data.slots[key]
 		local mountedGear = mountedId and GearData.Get(mountedId)
 		if data.unlockedSlots[key] and mountedGear then
-			local dps = GearData.EffectiveDPS(mountedGear, levelOf(data, mountedId))
+			local dps = gearDps(data, mountedId)
 			if dps < weakestDps then
 				weakestSlot, weakestDps = slotIndex, dps
 			end
@@ -240,7 +261,11 @@ end
 
 local function fire(state: State, m: Mounted, target)
 	local lane = state.lane
-	local damage = GearData.Damage(m.gear, m.level) * CharacterService:GetEffects(lane.owner).gearDamage
+	local owned = DataService:Get(lane.owner).owned[m.gear.id]
+	local forge = owned and owned.forge
+	local forgeDamage = LootConfig.ForgeBonus(forge)
+	local damage = GearData.Damage(m.gear, m.level) * forgeDamage * CharacterService:GetEffects(lane.owner).gearDamage
+	local slow = if forge and forge.traits and forge.traits.slow then LootConfig.Traits.slow else nil
 
 	-- Work out splash victims before dealing damage (kills remove enemies)
 	local victims = { target.id }
@@ -261,7 +286,9 @@ local function fire(state: State, m: Mounted, target)
 	FXBatcher.Shot(lane.owner, m.slot, target.id, position.X, position.Z)
 
 	for _, id in victims do
-		WaveService:DamageEnemy(lane, id, damage)
+		if not WaveService:DamageEnemy(lane, id, damage) and slow then
+			WaveService:SlowEnemy(lane, id, slow.slowFactor, slow.slowSeconds)
+		end
 	end
 end
 
@@ -272,7 +299,9 @@ local function stepState(state: State, dt: number)
 	end
 	dt *= lane.timeScale or 1
 	local rateBonus = CharacterService:GetEffects(lane.owner).gearRate -- Command
+	local data = DataService:Get(lane.owner)
 	for _, m in state.mounted do
+		local _, forgeRate = forgeBonus(data, m.gear.id)
 		m.cooldown -= dt
 		local shots = 0
 		while m.cooldown <= 0 and shots < MAX_SHOTS_PER_FRAME do
@@ -282,7 +311,7 @@ local function stepState(state: State, dt: number)
 				break
 			end
 			fire(state, m, target)
-			m.cooldown += 1 / (m.gear.fireRate * rateBonus)
+			m.cooldown += 1 / (m.gear.fireRate * rateBonus * forgeRate)
 			shots += 1
 		end
 	end
@@ -356,7 +385,7 @@ function GearService:Give(player: Player, gearId: string): string
 		state.mounted[slotIndex].level = owned.level
 		local model = slotPart(state.lane, slotIndex):FindFirstChild("Gear")
 		if model then
-			GearVisuals.SetLevel(model, owned.level)
+			GearVisuals.SetLevel(model, owned.level, owned.forge)
 		end
 	elseif not slotIndex then
 		local mountMessage = autoMount(player, gearId)
@@ -396,7 +425,7 @@ local function bestUnmounted(data): string?
 	for gearId, o in data.owned do
 		local gear = GearData.Get(gearId)
 		if gear and not mountedSlotOf(data, gearId) then
-			local dps = GearData.EffectiveDPS(gear, o.level)
+			local dps = gearDps(data, gearId)
 			if dps > bestDps then
 				best, bestDps = gearId, dps
 			end
@@ -453,7 +482,7 @@ function GearService:Equip(player: Player, gearId: string): string?
 			local mountedId = data.slots[key]
 			local mountedGear = mountedId and GearData.Get(mountedId)
 			if data.unlockedSlots[key] and mountedGear then
-				local dps = GearData.EffectiveDPS(mountedGear, levelOf(data, mountedId))
+				local dps = gearDps(data, mountedId)
 				if dps < weakestDps then
 					target, weakestDps, replaced = slotIndex, dps, mountedGear
 				end
@@ -492,6 +521,21 @@ end
 function GearService:GetTotalDps(player: Player): number
 	local state = states[player]
 	return if state then totalDps(state) else 0
+end
+
+-- After forging: update the gear's tag on the wall and the DPS numbers
+function GearService:RefreshGear(player: Player, gearId: string)
+	local state = states[player]
+	local data = DataService:Get(player)
+	local slotIndex = mountedSlotOf(data, gearId)
+	local owned = data.owned[gearId]
+	if state and slotIndex and owned then
+		local model = slotPart(state.lane, slotIndex):FindFirstChild("Gear")
+		if model then
+			GearVisuals.SetLevel(model, owned.level, owned.forge)
+		end
+	end
+	pushDps(player, state)
 end
 
 -- Re-send the DPS shown on the HUD (after the Command stat changes)

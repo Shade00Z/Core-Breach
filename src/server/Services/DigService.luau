@@ -20,6 +20,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local HeroConfig = require(Shared:WaitForChild("HeroConfig"))
 local LaneConfig = require(Shared:WaitForChild("LaneConfig"))
 local Format = require(Shared:WaitForChild("Format"))
+local LootConfig = require(Shared:WaitForChild("LootConfig"))
 local LaneBuilder = require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("LaneBuilder"))
 
 local ROCK_SIZE = Vector3.new(5, 10, 6.5) -- depth from the wall, height, length along the lane
@@ -99,7 +100,13 @@ local function refreshRocks(player: Player)
 			end
 		else
 			rock:SetAttribute("Paid", false)
-			setLabel(rock, "Dig out a gear slot\n$ " .. Format.Number(price))
+			local needTier = LootConfig.WallSlotTiers[slotIndex] or 1
+			if data.pickaxeTier < needTier then
+				-- Deep slots need a better pickaxe first
+				setLabel(rock, "Hard rock\nNeeds an " .. LootConfig.Pickaxes[needTier].name)
+			else
+				setLabel(rock, "Dig out a gear slot\n$ " .. Format.Number(price))
+			end
 			if prompt then
 				prompt.Enabled = true
 				prompt.ObjectText = "$ " .. Format.Number(price)
@@ -137,6 +144,11 @@ local function pay(player: Player, slotIndex: number)
 	local data = services.DataService:Get(player)
 	local key = tostring(slotIndex)
 	if data.unlockedSlots[key] or data.digging[key] then
+		return
+	end
+	local needTier = LootConfig.WallSlotTiers[slotIndex] or 1
+	if data.pickaxeTier < needTier then
+		notify:FireClient(player, "This rock is too hard. You need an " .. LootConfig.Pickaxes[needTier].name .. " (upgrade it at the forge).")
 		return
 	end
 	local price = nextPrice(player)
@@ -283,6 +295,11 @@ local function setupLane(lane)
 end
 
 ------------------------------------------------------------------------
+
+-- Re-check prices and pickaxe requirements (after a pickaxe upgrade)
+function DigService:Refresh(player: Player)
+	refreshRocks(player)
+end
 
 function DigService:Init(allServices)
 	services = allServices

@@ -22,6 +22,8 @@ local EVENTS = {
 	"CrateDecision", -- client -> server: "Buy" | "Skip" (week 2)
 	"SpendStat", -- client -> server: (stat id, points) spend stat points (week 4)
 	"CollectOffline", -- client -> server: collect offline earnings (week 4)
+	"ForgeAction", -- client -> server: ("Forge", gearId, {itemId = count}) | ("Salvage", gearId) | ("UpgradePickaxe") (week 5)
+	"ForgeResult", -- server -> client: what a forge strike rolled (week 5)
 	"ForgeStrike", -- client -> server: forge a weapon with chosen loot (week 5)
 	"GearAction", -- client -> server: ("Equip" | "Unequip", gearId) from the gear panel
 

@@ -14,6 +14,8 @@
 --   Levels n       gain n hero levels
 --   Away n         pretend you were away n seconds (offline earnings popup)
 --   Wipe           erase your save and kick you (rejoin to start fresh)
+--   Loot           a pile of every loot type (forge testing)
+--   Pickaxe        upgrade your pickaxe one tier for free
 --   UnlockRebirth  allow a rebirth without losing a wave
 --   UnlockSlots    open all six wall slots
 
@@ -65,6 +67,15 @@ local function run(player: Player, command: string, value: any)
 	elseif command == "Away" and type(value) == "number" and value >= 60 and value <= 86400 then
 		services.EconomyService:SimulateAway(player, math.floor(value))
 		notify:FireClient(player, "[DEV] Pretended you were away " .. math.floor(value / 60) .. " minutes")
+	elseif command == "Loot" then
+		services.ForgeService:GiveTestLoot(player)
+	elseif command == "Pickaxe" then
+		local data = services.DataService:Get(player)
+		data.pickaxeTier = math.min(#require(Shared:WaitForChild("LootConfig")).Pickaxes, data.pickaxeTier + 1)
+		services.CharacterService:RefreshPickaxe(player)
+		services.DigService:Refresh(player)
+		services.LootService:Refresh(player)
+		notify:FireClient(player, "[DEV] Pickaxe tier " .. data.pickaxeTier)
 	elseif command == "Wipe" then
 		services.DataService:Wipe(player)
 		return

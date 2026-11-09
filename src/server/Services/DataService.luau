@@ -43,6 +43,9 @@ export type PlayerData = {
 	slots: { [string]: string }, -- slot index -> gear id mounted there
 	owned: { [string]: OwnedGear }, -- every gear the player owns, by gear id
 	totalRolls: number,
+	loot: { [string]: { count: number, value: number } }, -- your bag: item id -> stack (value = total forge value)
+	pickaxeTier: number, -- 1 Stone, 2 Iron, 3 Gold (LootConfig.Pickaxes)
+	pendingRoll: { gearId: string, price: number }?, -- rolled but not bought or skipped yet
 	wave: number, -- the wave you're on (you return to it when you rejoin)
 
 	-- Hero
@@ -74,6 +77,8 @@ local function newTemplate(): PlayerData
 		slots = {},
 		owned = {},
 		totalRolls = 0,
+		loot = {},
+		pickaxeTier = 1,
 		wave = 1,
 		level = 1,
 		xp = 0,

@@ -70,6 +70,31 @@ function LaneBuilder.Build(index: number, parent: Instance, attributes: { [strin
 	makePart(model, "WallRight", Vector3.new(6, 16, L + 10), at(W / 2 + 3, 8, L / 2), COLORS.Wall, Enum.Material.Rock)
 	makePart(model, "WallBack", Vector3.new(W + 12, 16, 4), at(0, 8, L + 7), COLORS.Wall, Enum.Material.Rock)
 
+	-- Front wall behind the player end, with the exit door to the hub
+	-- (HubService teleports you to your tunnel door there)
+	makePart(model, "WallFront", Vector3.new(W + 12, 16, 4), at(0, 8, -7), COLORS.Wall, Enum.Material.Rock)
+	local exit = makePart(model, "ExitDoor", Vector3.new(8, 11, 0.8), at(0, 5.5, -4.8), Color3.fromRGB(105, 70, 40), Enum.Material.WoodPlanks)
+	local exitSign = Instance.new("SurfaceGui")
+	exitSign.Face = Enum.NormalId.Front
+	exitSign.CanvasSize = Vector2.new(240, 330)
+	exitSign.LightInfluence = 0
+	local exitText = Instance.new("TextLabel")
+	exitText.BackgroundTransparency = 1
+	exitText.Size = UDim2.fromScale(1, 0.35)
+	exitText.Font = Enum.Font.GothamBlack
+	exitText.TextScaled = true
+	exitText.TextColor3 = Color3.fromRGB(255, 225, 170)
+	exitText.Text = "MINE & FORGE"
+	exitText.Parent = exitSign
+	exitSign.Parent = exit
+	local exitPrompt = Instance.new("ProximityPrompt")
+	exitPrompt.ActionText = "Go to the mine"
+	exitPrompt.ObjectText = "Exit"
+	exitPrompt.KeyboardKeyCode = Enum.KeyCode.E
+	exitPrompt.MaxActivationDistance = 9
+	exitPrompt.RequiresLineOfSight = false
+	exitPrompt.Parent = exit
+
 	-- Breach hole (a glowing disc facing down the lane)
 	local breach = makePart(model, "Breach", Vector3.new(1, 12, 12), at(0, 7, L + 4.5) * CFrame.Angles(0, math.rad(90), 0), COLORS.Breach, Enum.Material.Neon)
 	breach.Shape = Enum.PartType.Cylinder

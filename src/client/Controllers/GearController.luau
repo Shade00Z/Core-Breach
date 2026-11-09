@@ -9,6 +9,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local GearData = require(Shared:WaitForChild("GearData"))
 local Format = require(Shared:WaitForChild("Format"))
+local LootConfig = require(Shared:WaitForChild("LootConfig"))
 
 local ROW_HEIGHT = 50
 
@@ -79,7 +80,8 @@ local function rebuild()
 	for gearId, owned in info.owned do
 		local gear = GearData.Get(gearId)
 		if gear then
-			table.insert(rows, { gear = gear, owned = owned, mounted = mountedIds[gearId] == true, dps = GearData.EffectiveDPS(gear, owned.level) })
+			-- The server sends each gear's DPS with its forge bonus included
+			table.insert(rows, { gear = gear, owned = owned, mounted = mountedIds[gearId] == true, dps = owned.dps or GearData.EffectiveDPS(gear, owned.level) })
 		end
 	end
 	table.sort(rows, function(a, b)
@@ -110,6 +112,12 @@ local function rebuild()
 
 		label(frame, gear.name, UDim2.new(0, 190, 0, 22), UDim2.new(0, 20, 0, 4), 17, rarity.color)
 		local levelText = if owned.maxed then "MAX level" else string.format("Lv %d  ·  %d/%d to Lv %d", owned.level, owned.copies, owned.needed, owned.level + 1)
+		if owned.forge then
+			levelText ..= string.format("  ·  x%.2f", owned.forge.mult)
+			for trait in owned.forge.traits or {} do
+				levelText ..= " " .. LootConfig.Traits[trait].name
+			end
+		end
 		label(frame, levelText, UDim2.new(0, 190, 0, 18), UDim2.new(0, 20, 0, 26), 13, Color3.fromRGB(200, 200, 210))
 		local dpsLabel = label(frame, Format.Number(row.dps) .. " DPS", UDim2.new(0, 80, 1, 0), UDim2.new(0, 205, 0, 0), 15)
 		dpsLabel.TextXAlignment = Enum.TextXAlignment.Right
