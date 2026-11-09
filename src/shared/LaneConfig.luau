@@ -61,10 +61,16 @@ local LaneConfig = {
 	-- wave is lost and restarts (bosses must be killed).
 	-- radius: how big it is (for hitting it with your pickaxe and getting hit)
 	-- heroDamage: damage to your hero when it touches you in the lane
+	-- Which kinds a lane spawns depends on its layer (LayerConfig enemies).
 	Enemies = {
+		-- Layer 1: Topsoil
 		[1] = { name = "BurrowGrub", speed = 11, radius = 1.8, heroDamage = 8 },
 		[2] = { name = "SkeletonMiner", speed = 8, radius = 1.2, heroDamage = 12 },
-		[3] = { name = "LayerBoss", speed = 5, radius = 4.5, heroDamage = 35, breaksBarricade = true },
+		[3] = { name = "GraveDigger", speed = 5, radius = 4.5, heroDamage = 35, breaksBarricade = true }, -- wave boss
+		-- Layer 2: Stone Vault
+		[4] = { name = "RockGolem", speed = 7, radius = 1.9, heroDamage = 16 },
+		[5] = { name = "CaveBat", speed = 13, radius = 1.3, heroDamage = 10 },
+		[6] = { name = "VaultWarden", speed = 5, radius = 4.5, heroDamage = 45, breaksBarricade = true }, -- wave boss
 	},
 }
 

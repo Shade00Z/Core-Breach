@@ -84,6 +84,7 @@ local function forge(player: Player, gearId: unknown, selection: unknown)
 	owned.forge = forgeData
 
 	services.GearService:RefreshGear(player, gearId)
+	services.QuestService:Progress(player, "forge", 1)
 	resultRemote:FireClient(player, {
 		gearId = gearId,
 		value = value,

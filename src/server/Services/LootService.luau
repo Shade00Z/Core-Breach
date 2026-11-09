@@ -16,6 +16,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local LootConfig = require(Shared:WaitForChild("LootConfig"))
+local LaneConfig = require(Shared:WaitForChild("LaneConfig"))
 local Format = require(Shared:WaitForChild("Format"))
 
 local MESSAGE_INTERVAL = 1.5 -- ore and cores are announced this often
@@ -132,7 +133,7 @@ local function onEnemyKilled(lane, enemy)
 	local player = lane.owner
 	local WaveService = services.WaveService
 	local drops = LootConfig.Drops
-	if WaveService.IsBoss(lane.wave) and enemy.kind == 3 then
+	if WaveService.IsBoss(lane.wave) and LaneConfig.Enemies[enemy.kind].breaksBarricade then
 		LootService:Add(player, "boss_core", 1, WaveService.WaveCoins(lane.wave) * drops.CoreValue)
 		return
 	end

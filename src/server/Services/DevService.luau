@@ -18,12 +18,15 @@
 --   Pickaxe        upgrade your pickaxe one tier for free
 --   UnlockRebirth  allow a rebirth without losing a wave
 --   UnlockSlots    open all six wall slots
+--   Layer n        move to layer n (1 also forgets beaten bosses, to refight them)
+--   QuestDone      finish your active quest's goal
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local DebugConfig = require(Shared:WaitForChild("DebugConfig"))
+local LayerConfig = require(Shared:WaitForChild("LayerConfig"))
 
 local SPEEDS = { [1] = true, [2] = true, [5] = true, [10] = true }
 local MAX_COINS_PER_COMMAND = 1e12
@@ -89,6 +92,19 @@ local function run(player: Player, command: string, value: any)
 		data.runBestWave = math.max(data.runBestWave, lane.wave - 1)
 		services.EconomyService:RefreshRebirth(player)
 		notify:FireClient(player, "[DEV] Rebirth unlocked")
+	elseif command == "Layer" and type(value) == "number" and LayerConfig.Layers[value] then
+		local data = services.DataService:Get(player)
+		if value == 1 then
+			data.bossesBeaten = {}
+		else
+			for layer = 1, value - 1 do
+				data.bossesBeaten[tostring(layer)] = true
+			end
+		end
+		services.HubService:MoveToLayer(player, value)
+		notify:FireClient(player, "[DEV] Layer " .. value .. ": " .. LayerConfig.Layers[value].name)
+	elseif command == "QuestDone" then
+		services.QuestService:DevComplete(player)
 	elseif command == "UnlockSlots" then
 		for slotIndex = 1, 6 do
 			services.GearService:UnlockSlot(player, slotIndex)

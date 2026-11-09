@@ -185,6 +185,17 @@ function DevController:Init(controllers)
 		send("Pickaxe")
 	end)
 
+	local layerRow = makeRow("Layers & quests", 7)
+	makeButton(layerRow, "Layer 1", function()
+		send("Layer", 1)
+	end)
+	makeButton(layerRow, "Layer 2", function()
+		send("Layer", 2)
+	end)
+	makeButton(layerRow, "Quest done", function()
+		send("QuestDone")
+	end)
+
 	-- Needs a second click within 3 seconds, so it's never hit by accident
 	local wipeButton: TextButton
 	local armedUntil = 0

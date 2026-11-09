@@ -24,6 +24,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("ProgressionConfig"))
 local HeroConfig = require(Shared:WaitForChild("HeroConfig"))
 local LaneConfig = require(Shared:WaitForChild("LaneConfig"))
+local LayerConfig = require(Shared:WaitForChild("LayerConfig"))
 local LaneSnapshot = require(Shared:WaitForChild("LaneSnapshot"))
 local DebugConfig = require(Shared:WaitForChild("DebugConfig"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -51,6 +52,7 @@ export type Lane = {
 	model: Model,
 	origin: CFrame,
 	moveDir: Vector3, -- world direction enemies walk (toward the player end)
+	layer: number, -- the owner's layer (LayerConfig): which enemies come and how much they pay
 	debug: DebugConfig.Settings,
 	wave: number,
 	waveTotalHp: number,
@@ -146,12 +148,13 @@ local function startWave(lane: Lane)
 	local isBoss = WaveService.IsBoss(wave)
 	lane.waveTotalHp = totalHp
 
+	local kinds = LayerConfig.Get(lane.layer).enemies
 	if isBoss then
 		-- One big boss carrying most of the wave's HP, plus a few minions.
 		local minions = LaneConfig.BossMinions
-		table.insert(lane.spawnQueue, newEnemy(lane, 3, totalHp * 0.6))
+		table.insert(lane.spawnQueue, newEnemy(lane, kinds.boss, totalHp * 0.6))
 		for _ = 1, minions do
-			table.insert(lane.spawnQueue, newEnemy(lane, 1, totalHp * 0.4 / minions))
+			table.insert(lane.spawnQueue, newEnemy(lane, kinds.normal, totalHp * 0.4 / minions))
 		end
 	else
 		local count = WaveService.EnemyCount(wave)
@@ -162,8 +165,9 @@ local function startWave(lane: Lane)
 		end
 		local swarm = WaveService.IsSwarm(wave)
 		for i = 1, count do
-			-- Swarm waves are mostly grubs; normal waves are 1 in 3 skeletons
-			local kind = if i % (if swarm then 5 else 3) == 0 then 2 else 1
+			-- Swarm waves are mostly the layer's small enemy; normal waves are
+			-- 1 in 3 of its other kind
+			local kind = if i % (if swarm then 5 else 3) == 0 then kinds.alt else kinds.normal
 			table.insert(lane.spawnQueue, newEnemy(lane, kind, totalHp / count))
 		end
 	end
@@ -374,12 +378,15 @@ local function createLane(player: Player)
 
 	-- Start on your saved wave (or DebugConfig's StartWave when testing)
 	local debugSettings = DebugConfig.For(player)
-	local savedWave = services.DataService:Get(player).wave or 1
+	local data = services.DataService:Get(player)
+	local savedWave = data.wave or 1
 	local firstWave = if debugSettings.StartWave > 1 then debugSettings.StartWave else math.max(1, savedWave)
+	local layer = LayerConfig.Get(data.layer).id
 	local model, origin = LaneBuilder.Build(index, lanesFolder, {
 		OwnerUserId = player.UserId,
 		Debug = DebugConfig.Changes(debugSettings),
 		Wave = firstWave,
+		Layer = layer,
 	})
 
 	local lane: Lane = {
@@ -388,6 +395,7 @@ local function createLane(player: Player)
 		model = model,
 		origin = origin,
 		moveDir = -origin.LookVector,
+		layer = layer,
 		debug = debugSettings,
 		wave = firstWave,
 		waveTotalHp = 1,
@@ -489,6 +497,18 @@ function WaveService:ResetLane(player: Player, wave: number)
 	setBarricade(lane, LaneConfig.BarricadeMaxHP)
 	lane.state = "Intermission"
 	lane.stateTimer = LaneConfig.IntermissionSeconds
+end
+
+-- Moves a lane to another layer (its owner beat a layer boss): reskins it
+-- and restarts the current wave with the new layer's enemies.
+function WaveService:SetLayer(player: Player, layer: number)
+	local lane = self.Lanes[player]
+	if not lane then
+		return
+	end
+	lane.layer = layer
+	LaneBuilder.ApplyTheme(lane.model, layer)
+	self:ResetLane(player, lane.wave)
 end
 
 -- Dev cheat: kills every enemy in the wave, including ones not spawned yet,

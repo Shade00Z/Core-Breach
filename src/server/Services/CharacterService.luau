@@ -14,7 +14,9 @@
 -- SwingWeapon. The server checks the cooldown and works out the hits itself
 -- from where your character is and which way it faces, so a player can't
 -- fake hits. A swing damages enemies in front of you and chips any wall rock
--- you've paid to dig (DigService), and ore veins in the mine (MiningService).
+-- you've paid to dig (DigService), ore veins in the mine (MiningService),
+-- and a layer boss in the arena (BossService).
+-- The level cap depends on your layer (LayerConfig levelCap).
 -- The pickaxe head's color shows your pickaxe tier.
 
 local Players = game:GetService("Players")
@@ -26,6 +28,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local HeroConfig = require(Shared:WaitForChild("HeroConfig"))
 local LaneConfig = require(Shared:WaitForChild("LaneConfig"))
 local LootConfig = require(Shared:WaitForChild("LootConfig"))
+local LayerConfig = require(Shared:WaitForChild("LayerConfig"))
 
 local HANDLE_COLOR = Color3.fromRGB(110, 75, 45)
 local HEAD_COLOR = Color3.fromRGB(90, 95, 105)
@@ -65,6 +68,11 @@ function CharacterService:FireBlastDamage(player: Player): number
 	return HeroConfig.FireBlastDamage(services.DataService:Get(player).level, self:GetEffects(player))
 end
 
+-- Level cap: each layer has its own (LayerConfig levelCap)
+local function capFor(data): number
+	return LayerConfig.LevelCap(data.layer)
+end
+
 local function pointsSpent(data): number
 	local total = 0
 	for _, stat in HeroConfig.Stats do
@@ -80,7 +88,7 @@ end
 -- Sends the hero's level, XP and stats to the client (HUD and Stats screen)
 local function pushHero(player: Player)
 	local data = services.DataService:Get(player)
-	local cap = HeroConfig.Levels.Cap
+	local cap = capFor(data)
 	services.EconomyService:PushStats(player, {
 		hero = {
 			level = data.level,
@@ -148,7 +156,7 @@ function CharacterService:GiveXP(player: Player, amount: number)
 		return
 	end
 	local data = services.DataService:Get(player)
-	local cap = HeroConfig.Levels.Cap
+	local cap = capFor(data)
 	if data.level >= cap then
 		return
 	end
@@ -176,7 +184,7 @@ end
 -- Dev cheat: jump levels
 function CharacterService:AddLevels(player: Player, levels: number)
 	local data = services.DataService:Get(player)
-	local target = math.clamp(data.level + levels, 1, HeroConfig.Levels.Cap)
+	local target = math.clamp(data.level + levels, 1, capFor(data))
 	local xp = 0
 	for level = data.level, target - 1 do
 		xp += HeroConfig.XPToNext(level)
@@ -308,6 +316,14 @@ local function onSwing(player: Player)
 
 	-- Ore veins in the mine
 	services.MiningService:Hit(player, origin)
+
+	-- A layer boss in the arena
+	services.BossService:Swing(player, origin, look, CharacterService:SwingDamage(player))
+end
+
+-- Re-sends hero info (after moving to a layer with a higher level cap)
+function CharacterService:Refresh(player: Player)
+	pushHero(player)
 end
 
 ------------------------------------------------------------------------

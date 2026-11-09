@@ -1,10 +1,13 @@
 -- HubService
--- Builds the layer hub (Modules/HubBuilder) and handles the doors between
--- the hub and the players' lanes:
---   * Tunnel doors 1-6 in the hub: your own door takes you into your lane.
---     Each door shows whose tunnel it is.
---   * The exit door at the back of your lane takes you to the hub, in front
---     of your own tunnel door.
+-- Builds every layer's hub (Modules/HubBuilder, one floor per layer in
+-- LayerConfig) and handles moving between hubs, lanes and layers:
+--   * Tunnel doors 1-6 in a hub: your own door (in your layer's hub) takes
+--     you into your lane. Each door shows whose tunnel it is.
+--   * The exit door at the back of your lane takes you to your layer's hub,
+--     in front of your tunnel door.
+--   * MoveToLayer: after beating a layer boss you drop into the next layer.
+--     Your lane is reskinned, your wave keeps going, and you arrive in the
+--     new layer's elevator plaza.
 -- Your gear wall keeps fighting while you're away from your lane.
 
 local Players = game:GetService("Players")
@@ -12,6 +15,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local LayerConfig = require(Shared:WaitForChild("LayerConfig"))
 local HubBuilder = require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("HubBuilder"))
 
 local TELEPORT_COOLDOWN = 1
@@ -20,16 +24,26 @@ local HubService = {}
 
 local services
 local notify: RemoteEvent
-local hub: HubBuilder.Hub
+local hubs: { [number]: HubBuilder.Hub } = {}
 local lastTeleport: { [Player]: number } = {}
 
-function HubService:GetHub(): HubBuilder.Hub
-	return hub
+-- One layer's hub (Layer 1 if that layer doesn't exist)
+function HubService:GetHub(layer: number?): HubBuilder.Hub
+	return hubs[layer or 1] or hubs[1]
 end
 
-local function canTeleport(player: Player): Model?
+-- Every layer's hub
+function HubService:GetHubs(): { HubBuilder.Hub }
+	return hubs
+end
+
+function HubService:GetLayer(player: Player): number
+	return LayerConfig.Get(services.DataService:Get(player).layer).id
+end
+
+local function canTeleport(player: Player, force: boolean?): Model?
 	local now = os.clock()
-	if lastTeleport[player] and now - lastTeleport[player] < TELEPORT_COOLDOWN then
+	if not force and lastTeleport[player] and now - lastTeleport[player] < TELEPORT_COOLDOWN then
 		return nil
 	end
 	local character = player.Character
@@ -50,23 +64,66 @@ function HubService:ToLane(player: Player)
 	end
 end
 
--- Out to the hub, in front of your tunnel door
+-- Out to your layer's hub, in front of your tunnel door
 function HubService:ToHub(player: Player)
 	local lane = services.WaveService:GetLane(player)
 	local character = canTeleport(player)
 	if lane and character then
 		local index = lane.model:GetAttribute("LaneIndex") or 1
-		character:PivotTo(hub.spawnInFront(index))
+		character:PivotTo(self:GetHub(self:GetLayer(player)).spawnInFront(index))
+	end
+end
+
+-- Door labels: your name on your door in your layer's hub, and only there
+local function labelDoors(player: Player, index: number, layer: number?)
+	for hubLayer, hub in hubs do
+		local label = hub.doorLabels[index]
+		local door = hub.doors[index]
+		if label and door then
+			if layer == hubLayer then
+				label.Text = player.DisplayName .. "'s tunnel"
+				door:SetAttribute("OwnerUserId", player.UserId)
+			else
+				label.Text = if layer then "In use" else "Empty"
+				door:SetAttribute("OwnerUserId", 0)
+			end
+		end
+	end
+end
+
+-- Drop a player into another layer (after beating a layer boss, or a dev
+-- cheat). Saves it, reskins their lane and brings them to that layer's plaza.
+function HubService:MoveToLayer(player: Player, layer: number)
+	local target = LayerConfig.Layers[layer]
+	if not target then
+		return
+	end
+	local data = services.DataService:Get(player)
+	data.layer = layer
+
+	local lane = services.WaveService:GetLane(player)
+	if lane then
+		services.WaveService:SetLayer(player, layer)
+		labelDoors(player, lane.model:GetAttribute("LaneIndex"), layer)
+	end
+	services.CharacterService:Refresh(player) -- the new layer's level cap
+	services.CrateService:Refresh(player) -- the new layer's luck bonus
+	services.QuestService:Refresh(player) -- the new layer's quest giver
+	services.EconomyService:PushStats(player, { layer = layer, layerName = target.name })
+
+	local character = canTeleport(player, true)
+	if character then
+		character:PivotTo(self:GetHub(layer).plaza)
 	end
 end
 
 local function onLaneCreated(lane)
 	local index = lane.model:GetAttribute("LaneIndex")
 	local player = lane.owner
-	if index and hub.doorLabels[index] then
-		hub.doorLabels[index].Text = player.DisplayName .. "'s tunnel"
-		hub.doors[index]:SetAttribute("OwnerUserId", player.UserId)
+	if index then
+		labelDoors(player, index, lane.layer)
 	end
+	services.EconomyService:PushStats(player, { layer = lane.layer, layerName = LayerConfig.Get(lane.layer).name })
 	-- The exit door at the back of the lane
 	local exit = lane.model:FindFirstChild("ExitDoor")
 	local prompt = exit and exit:FindFirstChildOfClass("ProximityPrompt")
@@ -81,33 +138,42 @@ end
 
 local function onLaneRemoved(lane)
 	local index = lane.model:GetAttribute("LaneIndex")
-	if index and hub.doorLabels[index] then
-		hub.doorLabels[index].Text = "Empty"
-		hub.doors[index]:SetAttribute("OwnerUserId", 0)
+	if index then
+		labelDoors(lane.owner, index, nil)
 	end
 end
 
 function HubService:Init(allServices)
 	services = allServices
-	hub = HubBuilder.Build(workspace)
+	local folder = Instance.new("Folder")
+	folder.Name = "Hubs"
+	folder.Parent = workspace
+	for _, layer in LayerConfig.Layers do
+		hubs[layer.id] = HubBuilder.Build(folder, layer.id)
+	end
 end
 
 function HubService:Start()
 	notify = Remotes.Event("Notify")
 	local WaveService = services.WaveService
 
-	for index, door in hub.doors do
-		local prompt = door:FindFirstChildOfClass("ProximityPrompt")
-		if prompt then
-			prompt.Triggered:Connect(function(player)
-				local lane = WaveService:GetLane(player)
-				local mine = lane and lane.model:GetAttribute("LaneIndex")
-				if mine == index then
-					HubService:ToLane(player)
-				elseif mine then
-					notify:FireClient(player, "That's someone else's tunnel. Yours is door " .. mine .. ".")
-				end
-			end)
+	for hubLayer, hub in hubs do
+		for index, door in hub.doors do
+			local prompt = door:FindFirstChildOfClass("ProximityPrompt")
+			if prompt then
+				prompt.Triggered:Connect(function(player)
+					local lane = WaveService:GetLane(player)
+					local mine = lane and lane.model:GetAttribute("LaneIndex")
+					if not mine then
+						return
+					end
+					if mine == index and HubService:GetLayer(player) == hubLayer then
+						HubService:ToLane(player)
+					else
+						notify:FireClient(player, "That's someone else's tunnel. Yours is door " .. mine .. ".")
+					end
+				end)
+			end
 		end
 	end
 

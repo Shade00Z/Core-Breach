@@ -25,14 +25,17 @@ LootConfig.Items = {
 	ember_ore = { id = "ember_ore", name = "Ember Ore", kind = "Ore", color = Color3.fromRGB(255, 90, 30), value = 10, trait = "burn" },
 	gold_ore = { id = "gold_ore", name = "Gold Ore", kind = "Ore", color = Color3.fromRGB(255, 200, 50), value = 15 },
 	frost_geode = { id = "frost_geode", name = "Frost Geode", kind = "Ore", color = Color3.fromRGB(120, 210, 255), value = 25, trait = "slow" },
+	crystal_ore = { id = "crystal_ore", name = "Vault Crystal", kind = "Ore", color = Color3.fromRGB(190, 140, 255), value = 40 }, -- Stone Vault
 	grub_chitin = { id = "grub_chitin", name = "Grub Chitin", kind = "Part", color = Color3.fromRGB(140, 100, 70) },
 	old_bone = { id = "old_bone", name = "Old Bone", kind = "Part", color = Color3.fromRGB(230, 225, 205) },
+	golem_shard = { id = "golem_shard", name = "Golem Shard", kind = "Part", color = Color3.fromRGB(150, 150, 165) }, -- Stone Vault
+	bat_wing = { id = "bat_wing", name = "Bat Wing", kind = "Part", color = Color3.fromRGB(110, 80, 130) }, -- Stone Vault
 	boss_core = { id = "boss_core", name = "Boss Core", kind = "Core", color = Color3.fromRGB(255, 60, 90), trait = "core" },
 	scrap = { id = "scrap", name = "Salvage Scrap", kind = "Scrap", color = Color3.fromRGB(150, 150, 160) },
 } :: { [string]: Item }
 
 -- Order items are listed in the bag and the forge
-LootConfig.ItemOrder = { "copper_ore", "iron_ore", "ember_ore", "gold_ore", "frost_geode", "grub_chitin", "old_bone", "boss_core", "scrap" }
+LootConfig.ItemOrder = { "copper_ore", "iron_ore", "ember_ore", "gold_ore", "frost_geode", "crystal_ore", "grub_chitin", "old_bone", "golem_shard", "bat_wing", "boss_core", "scrap" }
 
 ------------------------------------------------------------------------
 -- Drops from your lane
@@ -41,7 +44,7 @@ LootConfig.ItemOrder = { "copper_ore", "iron_ore", "ember_ore", "gold_ore", "fro
 LootConfig.Drops = {
 	PartChance = 0.12, -- per kill, x the Fortune stat's luck bonus
 	PartValue = 3, -- a part is worth this many times the coins its kill paid
-	PartByEnemy = { [1] = "grub_chitin", [2] = "old_bone" }, -- enemy kind -> part
+	PartByEnemy = { [1] = "grub_chitin", [2] = "old_bone", [4] = "golem_shard", [5] = "bat_wing" }, -- enemy kind -> part
 	CoreValue = 2, -- a boss core is worth this many times the boss wave's coins
 }
 
@@ -57,6 +60,7 @@ LootConfig.Veins = {
 	ember_ore = { hp = 10, tier = 2, yield = { 2, 3 }, respawn = 45 },
 	gold_ore = { hp = 12, tier = 3, yield = { 2, 3 }, respawn = 50 },
 	frost_geode = { hp = 14, tier = 3, yield = { 1, 2 }, respawn = 60 },
+	crystal_ore = { hp = 12, tier = 2, yield = { 2, 3 }, respawn = 50 },
 }
 LootConfig.MiningRange = 7 -- studs from your character to a vein's surface
 LootConfig.MiningXP = 5 -- XP per point of ore value you mine

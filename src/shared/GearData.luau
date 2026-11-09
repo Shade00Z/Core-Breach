@@ -24,6 +24,7 @@ export type Gear = {
 	fireRate: number, -- shots per second
 	splash: number, -- splash radius in studs, 0 = single target
 	price: number, -- coin cost after it's revealed
+	layer: number?, -- the crate can roll it from this layer down (default 1)
 }
 
 local GearData = {}
@@ -68,6 +69,13 @@ local items: { Gear } = {
 	-- Legendary
 	{ id = "core_lance", name = "Core Lance", kind = "Rifle", rarity = "Legendary", damage = 140, fireRate = 0.8, splash = 0, price = 9000 },
 	{ id = "hive_drones", name = "Hive Drones", kind = "Drone", rarity = "Legendary", damage = 18, fireRate = 6, splash = 3, price = 12000 },
+
+	-- Stone Vault set (rolls once you reach Layer 2)
+	{ id = "quartz_repeater", name = "Quartz Repeater", kind = "Rifle", rarity = "Common", damage = 60, fireRate = 1.2, splash = 0, price = 2500, layer = 2 },
+	{ id = "geode_turret", name = "Geode Turret", kind = "Turret", rarity = "Rare", damage = 25, fireRate = 4, splash = 0, price = 8000, layer = 2 },
+	{ id = "echo_drone", name = "Echo Drone", kind = "Drone", rarity = "Rare", damage = 45, fireRate = 2.5, splash = 2, price = 9000, layer = 2 },
+	{ id = "crystal_launcher", name = "Crystal Launcher", kind = "Launcher", rarity = "Epic", damage = 400, fireRate = 0.5, splash = 8, price = 35000, layer = 2 },
+	{ id = "vault_breaker", name = "Vault Breaker", kind = "Rifle", rarity = "Legendary", damage = 900, fireRate = 0.8, splash = 0, price = 140000, layer = 2 },
 }
 
 local byId: { [string]: Gear } = {}
@@ -81,10 +89,12 @@ function GearData.Get(id: string): Gear?
 	return byId[id]
 end
 
-function GearData.ByRarity(rarity: Rarity): { Gear }
+-- Gear of a rarity. With maxLayer, only gear the crate can roll in that
+-- layer (the layer's own set plus everything above it).
+function GearData.ByRarity(rarity: Rarity, maxLayer: number?): { Gear }
 	local list = {}
 	for _, gear in items do
-		if gear.rarity == rarity then
+		if gear.rarity == rarity and (not maxLayer or (gear.layer or 1) <= maxLayer) then
 			table.insert(list, gear)
 		end
 	end

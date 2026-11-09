@@ -7,6 +7,7 @@
 -- the same enemy) and sends its id. The server checks the cooldown and that
 -- the target is really in front of you and in range; if not, it picks its own.
 --
+-- It also hits a layer boss in the arena (BossService).
 -- Week 8 adds Core Powers with their own abilities here.
 
 local Players = game:GetService("Players")
@@ -87,11 +88,15 @@ local function castFireBlast(player: Player, claimedTarget: number?)
 		end
 	end
 
-	local aimPoint = if targetId then WaveService.EnemyPosition(lane, lane.enemies[targetId]) else origin + look * settings.Range
+	-- No lane enemy in front: aim at a layer boss in the arena, if there is one
+	local bossPoint = if targetId then nil else services.BossService:AimPoint(origin, look, settings.Range, settings.AimConeDegrees)
+	local aimPoint = if targetId then WaveService.EnemyPosition(lane, lane.enemies[targetId]) else bossPoint or origin + look * settings.Range
 	local travel = Vector3.new(aimPoint.X - origin.X, 0, aimPoint.Z - origin.Z).Magnitude / settings.Speed
 	local damage = services.CharacterService:FireBlastDamage(player)
 
 	task.delay(travel, function()
+		-- A layer boss caught in the blast (it may have moved a little: some slack)
+		services.BossService:Blast(player, aimPoint, settings.SplashRadius + (if bossPoint then 4 else 0), damage)
 		if WaveService:GetLane(player) ~= lane then
 			return
 		end

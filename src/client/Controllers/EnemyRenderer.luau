@@ -36,8 +36,12 @@ local BAR_LOW = Color3.fromRGB(230, 60, 40)
 local LOOKS = {
 	[1] = { size = Vector3.new(3, 1.6, 3.5), color = Color3.fromRGB(140, 95, 55) }, -- Burrow Grub
 	[2] = { size = Vector3.new(2, 5, 2), color = Color3.fromRGB(225, 220, 200) }, -- Skeleton Miner
-	[3] = { size = Vector3.new(8, 10, 8), color = Color3.fromRGB(200, 50, 40) }, -- Layer Boss
-}
+	[3] = { size = Vector3.new(8, 10, 8), color = Color3.fromRGB(200, 50, 40) }, -- Grave Digger (wave boss)
+	-- Stone Vault
+	[4] = { size = Vector3.new(3.6, 4.6, 3.6), color = Color3.fromRGB(125, 125, 140) }, -- Rock Golem
+	[5] = { size = Vector3.new(2.8, 1, 2.2), color = Color3.fromRGB(85, 60, 110), hover = 3 }, -- Cave Bat (flies)
+	[6] = { size = Vector3.new(9, 11, 9), color = Color3.fromRGB(80, 140, 210) }, -- Vault Warden (wave boss)
+} :: { [number]: { size: Vector3, color: Color3, hover: number? } }
 
 type Visual = {
 	part: BasePart,
@@ -134,7 +138,8 @@ local function targetCFrame(visual: Visual, now: number): CFrame
 	local ahead = math.min(now - visual.baseTime, MAX_PREDICT) * visual.speed
 	local x = visual.baseX + dirX * ahead
 	local z = visual.baseZ + dirZ * ahead
-	local y = FLOOR_Y + lookFor(visual.kind).size.Y / 2
+	local look = lookFor(visual.kind)
+	local y = FLOOR_Y + look.size.Y / 2 + (look.hover or 0)
 	local position = Vector3.new(x, y, z)
 	return CFrame.lookAt(position, position + Vector3.new(dirX, 0, dirZ))
 end

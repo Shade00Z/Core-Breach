@@ -7,15 +7,15 @@
 -- the lane and "lateral" studs to the side is origin * Vector3.new(lateral, y, -dist).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local LaneConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("LaneConfig"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local LaneConfig = require(Shared:WaitForChild("LaneConfig"))
+local LayerConfig = require(Shared:WaitForChild("LayerConfig"))
 
 local LaneBuilder = {}
 
+-- Floor, walls, barricade and breach colors come from the layer
+-- (LayerConfig lane colors); these stay the same in every layer.
 local COLORS = {
-	Floor = Color3.fromRGB(58, 52, 46),
-	Wall = Color3.fromRGB(110, 84, 58),
-	Barricade = Color3.fromRGB(150, 110, 70),
-	Breach = Color3.fromRGB(220, 40, 40),
 	Slot = Color3.fromRGB(150, 150, 150),
 	CratePad = Color3.fromRGB(240, 180, 40),
 	Crate = Color3.fromRGB(160, 110, 60),
@@ -44,6 +44,31 @@ function LaneBuilder.SlotLocal(slotIndex: number): (number, number, number)
 	return side * (LaneConfig.Width / 2 - 1.5), 6, dist
 end
 
+-- Recolors a lane for a layer (when it's built, and when its owner moves
+-- down a layer)
+local THEMED = {
+	Floor = "Floor",
+	WallLeft = "Wall",
+	WallRight = "Wall",
+	WallBack = "Wall",
+	WallFront = "Wall",
+	Barricade = "Barricade",
+	Breach = "Breach",
+}
+function LaneBuilder.ApplyTheme(model: Model, layerId: number)
+	local colors = LayerConfig.Get(layerId).lane
+	for name, key in THEMED do
+		local p = model:FindFirstChild(name)
+		if p and p:IsA("BasePart") then
+			p.Color = colors[key]
+			if name == "Barricade" then
+				p:SetAttribute("BaseColor", colors[key]) -- the client tints it red as it's damaged
+			end
+		end
+	end
+	model:SetAttribute("Layer", layerId)
+end
+
 function LaneBuilder.OriginFor(index: number): CFrame
 	local x = (index - 1) * LaneConfig.Spacing
 	local position = Vector3.new(x, 0, LaneConfig.StartZ)
@@ -65,14 +90,14 @@ function LaneBuilder.Build(index: number, parent: Instance, attributes: { [strin
 	end
 
 	-- Floor and walls
-	makePart(model, "Floor", Vector3.new(W, 0.4, L + 10), at(0, 0.2, L / 2), COLORS.Floor, Enum.Material.Concrete)
-	makePart(model, "WallLeft", Vector3.new(6, 16, L + 10), at(-(W / 2 + 3), 8, L / 2), COLORS.Wall, Enum.Material.Rock)
-	makePart(model, "WallRight", Vector3.new(6, 16, L + 10), at(W / 2 + 3, 8, L / 2), COLORS.Wall, Enum.Material.Rock)
-	makePart(model, "WallBack", Vector3.new(W + 12, 16, 4), at(0, 8, L + 7), COLORS.Wall, Enum.Material.Rock)
+	makePart(model, "Floor", Vector3.new(W, 0.4, L + 10), at(0, 0.2, L / 2), Color3.new(), Enum.Material.Concrete)
+	makePart(model, "WallLeft", Vector3.new(6, 16, L + 10), at(-(W / 2 + 3), 8, L / 2), Color3.new(), Enum.Material.Rock)
+	makePart(model, "WallRight", Vector3.new(6, 16, L + 10), at(W / 2 + 3, 8, L / 2), Color3.new(), Enum.Material.Rock)
+	makePart(model, "WallBack", Vector3.new(W + 12, 16, 4), at(0, 8, L + 7), Color3.new(), Enum.Material.Rock)
 
 	-- Front wall behind the player end, with the exit door to the hub
 	-- (HubService teleports you to your tunnel door there)
-	makePart(model, "WallFront", Vector3.new(W + 12, 16, 4), at(0, 8, -7), COLORS.Wall, Enum.Material.Rock)
+	makePart(model, "WallFront", Vector3.new(W + 12, 16, 4), at(0, 8, -7), Color3.new(), Enum.Material.Rock)
 	local exit = makePart(model, "ExitDoor", Vector3.new(8, 11, 0.8), at(0, 5.5, -4.8), Color3.fromRGB(105, 70, 40), Enum.Material.WoodPlanks)
 	local exitSign = Instance.new("SurfaceGui")
 	exitSign.Face = Enum.NormalId.Front
@@ -96,12 +121,12 @@ function LaneBuilder.Build(index: number, parent: Instance, attributes: { [strin
 	exitPrompt.Parent = exit
 
 	-- Breach hole (a glowing disc facing down the lane)
-	local breach = makePart(model, "Breach", Vector3.new(1, 12, 12), at(0, 7, L + 4.5) * CFrame.Angles(0, math.rad(90), 0), COLORS.Breach, Enum.Material.Neon)
+	local breach = makePart(model, "Breach", Vector3.new(1, 12, 12), at(0, 7, L + 4.5) * CFrame.Angles(0, math.rad(90), 0), Color3.new(), Enum.Material.Neon)
 	breach.Shape = Enum.PartType.Cylinder
 	breach.CanCollide = false
 
 	-- Barricade
-	local barricade = makePart(model, "Barricade", Vector3.new(W, 4, 2), at(0, 2, LaneConfig.BarricadeDistance), COLORS.Barricade, Enum.Material.WoodPlanks)
+	local barricade = makePart(model, "Barricade", Vector3.new(W, 4, 2), at(0, 2, LaneConfig.BarricadeDistance), Color3.new(), Enum.Material.WoodPlanks)
 	barricade:SetAttribute("HP", LaneConfig.BarricadeMaxHP)
 	barricade:SetAttribute("MaxHP", LaneConfig.BarricadeMaxHP)
 
@@ -125,6 +150,7 @@ function LaneBuilder.Build(index: number, parent: Instance, attributes: { [strin
 	makePart(model, "Crate", Vector3.new(4, 3, 4), at(0, 2.5, 6), COLORS.Crate, Enum.Material.WoodPlanks)
 
 	model.PrimaryPart = model:FindFirstChild("Floor") :: BasePart
+	LaneBuilder.ApplyTheme(model, attributes and attributes.Layer or 1)
 	if attributes then
 		for name, value in attributes do
 			model:SetAttribute(name, value)

@@ -111,10 +111,12 @@ local function trackBarricade(barricade: BasePart)
 		lastHp = hp
 		local maxHp = math.max(1, barricade:GetAttribute("MaxHP") or 1)
 		local fraction = math.clamp(hp / maxHp, 0, 1)
-		barricade.Color = DAMAGED:Lerp(WOOD, fraction)
+		local base = barricade:GetAttribute("BaseColor") -- the layer's barricade color (LaneBuilder)
+		barricade.Color = DAMAGED:Lerp(if typeof(base) == "Color3" then base else WOOD, fraction)
 		barricade.Transparency = if hp <= 0 then 0.7 else 0
 	end
 	barricade:GetAttributeChangedSignal("HP"):Connect(refresh)
+	barricade:GetAttributeChangedSignal("BaseColor"):Connect(refresh)
 	refresh()
 end
 

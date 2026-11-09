@@ -19,6 +19,7 @@ local ORDER = {
 	"DigService",
 	"LootService",
 	"MiningService",
+	"BossService",
 	"CrateService",
 	"ForgeService",
 	"AbilityService",

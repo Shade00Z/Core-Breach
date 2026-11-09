@@ -1,5 +1,5 @@
 -- HubController
--- Client side of the hub:
+-- Client side of the hubs (one per layer):
 --   * Only your own tunnel door shows its "Enter your tunnel" prompt.
 --   * Rock chips and sounds when ore veins are hit and broken (the server
 --     sets each vein's HP and Broken attributes; see MiningService).
@@ -75,24 +75,32 @@ function HubController:Init(controllers)
 	SoundController = controllers.SoundController
 end
 
+-- One layer's hub (workspace.Hubs.Layer1, Layer2...)
+local function watchHub(hub: Instance)
+	for index = 1, 6 do
+		local door = hub:WaitForChild("Door" .. index, 10)
+		if door then
+			watchDoor(door)
+		end
+	end
+	local veins = hub:WaitForChild("Veins", 10)
+	if veins then
+		veins.ChildAdded:Connect(watchVein)
+		for _, vein in veins:GetChildren() do
+			task.spawn(watchVein, vein)
+		end
+	end
+end
+
 function HubController:Start()
 	task.spawn(function()
-		local hub = workspace:WaitForChild("Hub", 30)
-		if not hub then
+		local hubs = workspace:WaitForChild("Hubs", 30)
+		if not hubs then
 			return
 		end
-		for index = 1, 6 do
-			local door = hub:WaitForChild("Door" .. index, 10)
-			if door then
-				watchDoor(door)
-			end
-		end
-		local veins = hub:WaitForChild("Veins", 10)
-		if veins then
-			veins.ChildAdded:Connect(watchVein)
-			for _, vein in veins:GetChildren() do
-				task.spawn(watchVein, vein)
-			end
+		hubs.ChildAdded:Connect(watchHub)
+		for _, hub in hubs:GetChildren() do
+			task.spawn(watchHub, hub)
 		end
 	end)
 end

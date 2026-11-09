@@ -5,7 +5,9 @@
 --     next to the jump button. Hits enemies in front of you and wall rock
 --     you've paid to dig.
 --   * Fire Blast: Q, or the Fire Blast button on the right. Flies where you
---     face and bends toward the nearest enemy in front (aim assist).
+--     face and bends toward the nearest enemy in front (aim assist), or a
+--     layer boss in the arena.
+--   Both also hit a layer boss (if your level is high enough).
 --   * A red flash and sound when enemies hurt you.
 --   * Rock chips and sounds while digging out wall slots.
 --
@@ -13,6 +15,7 @@
 -- controller shows hits right away (flash and damage numbers) so it feels
 -- instant, and the kills arrive from the server a moment later.
 
+local CollectionService = game:GetService("CollectionService")
 local ContextActionService = game:GetService("ContextActionService")
 local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
@@ -122,6 +125,30 @@ local function fxPart(size: Vector3, color: Color3, shape: Enum.PartType?): Part
 	return part
 end
 
+-- Layer bosses fighting near a point (BossService tags them "LayerBoss").
+-- position = the boss's feet.
+local function bossesNear(position: Vector3, range: number): { { model: Model, position: Vector3, offset: Vector3 } }
+	local found = {}
+	for _, model in CollectionService:GetTagged("LayerBoss") do
+		local body = model.PrimaryPart
+		if body and not model:GetAttribute("Defeated") then
+			local feet = body.Position - Vector3.new(0, 4.5, 0)
+			local radius = model:GetAttribute("Radius") or 5
+			local offset = Vector3.new(feet.X - position.X, 0, feet.Z - position.Z)
+			if offset.Magnitude <= range + radius and math.abs(feet.Y - position.Y) < 15 then
+				table.insert(found, { model = model, position = feet, offset = offset })
+			end
+		end
+	end
+	return found
+end
+
+-- Your hero is high enough level to hurt this boss
+local function canHurtBoss(model: Model): boolean
+	local hero = UIController.Stats.hero
+	return type(hero) == "table" and hero.level >= (model:GetAttribute("Level") or 0)
+end
+
 ------------------------------------------------------------------------
 -- Damage numbers
 ------------------------------------------------------------------------
@@ -225,6 +252,12 @@ local function showSwingHits(root: BasePart)
 			hit = true
 		end
 	end
+	for _, boss in bossesNear(origin, HeroConfig.Swing.Range) do
+		if canHurtBoss(boss.model) and (boss.offset.Magnitude < 1 or boss.offset.Unit:Dot(look) >= HeroConfig.Swing.ArcDot) then
+			showDamage(boss.position + Vector3.new(0, 8, 0), damage, Color3.new(1, 1, 1))
+			hit = true
+		end
+	end
 	if hit then
 		SoundController:Play("MeleeHit")
 	end
@@ -295,10 +328,16 @@ local function explode(position: Vector3)
 			showDamage(enemy.position, damage, FIRE_COLOR)
 		end
 	end
+	for _, boss in bossesNear(position, settings.SplashRadius + 4) do
+		if canHurtBoss(boss.model) then
+			showDamage(boss.position + Vector3.new(0, 8, 0), damage, FIRE_COLOR)
+		end
+	end
 end
 
 -- The fireball flies toward its target and follows it if it moves
-local function launchFireball(start: Vector3, targetId: number?, aimPoint: Vector3)
+-- (a lane enemy by id, or a layer boss model)
+local function launchFireball(start: Vector3, targetId: number?, aimPoint: Vector3, boss: Model?)
 	local settings = HeroConfig.FireBlast
 	local ball = fxPart(Vector3.new(2, 2, 2), FIRE_COLOR, Enum.PartType.Ball)
 	ball.CFrame = CFrame.new(start)
@@ -320,6 +359,8 @@ local function launchFireball(start: Vector3, targetId: number?, aimPoint: Vecto
 			if current then
 				target = current
 			end
+		elseif boss and boss.PrimaryPart then
+			target = boss.PrimaryPart.Position - Vector3.new(0, 4.5, 0)
 		end
 		local toTarget = target - position
 		local step = settings.Speed * dt
@@ -344,11 +385,22 @@ local function tryFireBlast()
 
 	local look = flatLook(root)
 	local targetId, targetPosition = pickTarget(root.Position, look)
+	-- No lane enemy in front: a layer boss in the arena, if one's in the cone
+	local boss: Model? = nil
+	if not targetId then
+		local minDot = math.cos(math.rad(HeroConfig.FireBlast.AimConeDegrees))
+		for _, candidate in bossesNear(root.Position, HeroConfig.FireBlast.Range) do
+			if candidate.offset.Magnitude < 1 or candidate.offset.Unit:Dot(look) >= minDot then
+				boss, targetPosition = candidate.model, candidate.position
+				break
+			end
+		end
+	end
 	local start = root.Position + look * 2 + Vector3.new(0, 1, 0)
 	local aimPoint = targetPosition or (root.Position + look * HeroConfig.FireBlast.Range)
 	abilityRemote:FireServer("FireBlast", targetId or 0)
 	SoundController:Play("FireCast")
-	launchFireball(start, targetId, aimPoint)
+	launchFireball(start, targetId, aimPoint, boss)
 end
 
 local function updateCooldown()

@@ -17,7 +17,7 @@ local HeroConfig = {}
 -- it; kills by your gear wall give GearKillShare of it.
 -- XP to go from level L to L + 1 = XPBase x XPGrowth^L
 HeroConfig.Levels = {
-	Cap = 60, -- Layer 1's level cap; deeper layers raise it (week 6)
+	Cap = 60, -- default only: each layer has its own cap (LayerConfig levelCap)
 	XPBase = 150,
 	XPGrowth = 1.1,
 	GearKillShare = 0.25,

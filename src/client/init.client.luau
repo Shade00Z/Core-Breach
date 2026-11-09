@@ -16,6 +16,8 @@ local ORDER = {
 	"BagController",
 	"ForgeController",
 	"HubController",
+	"BossController",
+	"QuestController",
 	"RebirthController",
 	"OfflineController",
 	"DevController",

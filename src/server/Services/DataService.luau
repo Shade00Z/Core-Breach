@@ -48,6 +48,11 @@ export type PlayerData = {
 	pendingRoll: { gearId: string, price: number }?, -- rolled but not bought or skipped yet
 	wave: number, -- the wave you're on (you return to it when you rejoin)
 
+	-- Layers and quests (week 6)
+	layer: number, -- the layer you play in (LayerConfig); beating its boss moves you down
+	bossesBeaten: { [string]: boolean }, -- layer -> beaten that layer's boss
+	quests: { [string]: { step: number, active: boolean, progress: number } }, -- layer -> quest line progress (QuestConfig)
+
 	-- Hero
 	level: number,
 	xp: number, -- XP toward the next level
@@ -80,6 +85,9 @@ local function newTemplate(): PlayerData
 		loot = {},
 		pickaxeTier = 1,
 		wave = 1,
+		layer = 1,
+		bossesBeaten = {},
+		quests = {},
 		level = 1,
 		xp = 0,
 		stats = { power = 0, command = 0, excavation = 0, fortune = 0, vitality = 0 },

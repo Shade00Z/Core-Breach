@@ -26,6 +26,7 @@ local EVENTS = {
 	"ForgeResult", -- server -> client: what a forge strike rolled (week 5)
 	"ForgeStrike", -- client -> server: forge a weapon with chosen loot (week 5)
 	"GearAction", -- client -> server: ("Equip" | "Unequip", gearId) from the gear panel
+	"QuestAction", -- client -> server: "Accept" | "TurnIn" at your layer's quest giver (week 6)
 
 	-- Rebirth
 	"RequestRebirth", -- client -> server: the player confirmed a rebirth

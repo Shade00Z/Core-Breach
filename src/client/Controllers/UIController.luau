@@ -235,7 +235,7 @@ function UIController:Init(controllers)
 	bossFill.Parent = bossBar
 	Instance.new("UICorner", bossFill).CornerRadius = UDim.new(0, 8)
 	local bossName = makeLabel(bossBar, UDim2.new(1, 0, 1, 0), UDim2.new(), 16)
-	bossName.Text = "LAYER BOSS"
+	bossName.Text = "WAVE BOSS"
 	bossName.ZIndex = 2
 
 	-- Top left: coins and DPS (below Roblox's menu buttons)

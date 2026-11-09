@@ -29,6 +29,7 @@ SoundConfig.Sounds = {
 	BarricadeBreak = { id = 9113225986, volume = 0.6, voices = 1, range = { 30, 200 } }, -- ProSoundEffects giant axe impact
 	BossRoar = { id = 9113980319, volume = 0.5, voices = 1 }, -- ProSoundEffects monster roar
 	BossDown = { id = 120005759558278, volume = 0.5, voices = 1 }, -- Milestone
+	BossSlam = { id = 9113225986, volume = 0.7, pitch = { 0.7, 0.8 }, voices = 2, range = { 30, 220 } }, -- giant axe impact, lower (layer boss slam)
 
 	-- Hero
 	Swing = { id = 5789211405, volume = 0.35, pitch = { 0.95, 1.1 }, voices = 2 }, -- sword whoosh
@@ -56,6 +57,8 @@ SoundConfig.Sounds = {
 	LevelUp = { id = 120005759558278, volume = 0.45, pitch = { 1.1, 1.1 }, voices = 1 }, -- Milestone, higher
 	NewRecord = { id = 120005759558278, volume = 0.5, voices = 1 }, -- Milestone
 	Rebirth = { id = 1841997734, volume = 0.5, voices = 1 }, -- APM sting "Micro"
+	QuestAccept = { id = 90618709727045, volume = 0.35, voices = 1 }, -- small reveal
+	QuestDone = { id = 117904822279498, volume = 0.5, voices = 1 }, -- reward chime
 } :: { [string]: SoundInfo }
 
 return SoundConfig

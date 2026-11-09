@@ -1,5 +1,6 @@
 -- MiningService
--- Ore veins in the mine (west side of the hub). Swing your pickaxe at a vein
+-- Ore veins in each layer's mine (west side of the hub; which ores is set
+-- per layer in LayerConfig). Swing your pickaxe at a vein
 -- to chip it; when it breaks, everyone who hit it gets the ore (it isn't
 -- split, so mining together never hurts). The vein comes back after a while.
 --
@@ -14,6 +15,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local LootConfig = require(Shared:WaitForChild("LootConfig"))
+local LayerConfig = require(Shared:WaitForChild("LayerConfig"))
 local HubBuilder = require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("HubBuilder"))
 
 local ROCK_COLOR = Color3.fromRGB(95, 85, 80)
@@ -41,10 +43,10 @@ local rng = Random.new()
 -- Building veins
 ------------------------------------------------------------------------
 
-local function buildVein(folder: Instance, spot, index: number): Vein
+local function buildVein(folder: Instance, layer: number, spot, index: number): Vein
 	local item = LootConfig.Items[spot.ore]
 	local settings = LootConfig.Veins[spot.ore]
-	local base = HubBuilder.VeinPosition(spot)
+	local base = HubBuilder.VeinPosition(layer, spot)
 	local spin = CFrame.Angles(0, math.rad((index * 47) % 360), 0)
 
 	local model = Instance.new("Model")
@@ -58,7 +60,7 @@ local function buildVein(folder: Instance, spot, index: number): Vein
 	rock.Material = Enum.Material.Rock
 	rock.Parent = model
 	-- Ore crystals sticking out of the rock
-	local glowing = spot.ore == "ember_ore" or spot.ore == "frost_geode" or spot.ore == "gold_ore"
+	local glowing = spot.ore == "ember_ore" or spot.ore == "frost_geode" or spot.ore == "gold_ore" or spot.ore == "crystal_ore"
 	for i, offset in { Vector3.new(1.6, 2.6, 0.8), Vector3.new(-1.2, 2.3, -1.4), Vector3.new(0.2, 2.9, -0.6), Vector3.new(-1.8, 1.4, 1.7), Vector3.new(2.2, 1.2, -1.8) } do
 		local crystal = Instance.new("Part")
 		crystal.Name = "Ore"
@@ -132,6 +134,7 @@ local function breakVein(vein: Vein)
 			local count = rng:NextInteger(settings.yield[1], settings.yield[2])
 			services.LootService:Add(player, vein.ore, count)
 			services.CharacterService:GiveXP(player, count * (item.value or 1) * LootConfig.MiningXP)
+			services.QuestService:Progress(player, "mine", count, vein.ore)
 		end
 	end
 	vein.contributors = {}
@@ -205,9 +208,10 @@ end
 
 function MiningService:Start()
 	notify = Remotes.Event("Notify")
-	local hub = services.HubService:GetHub()
-	for index, spot in HubBuilder.VeinSpots do
-		table.insert(veins, buildVein(hub.veinFolder, spot, index))
+	for _, hub in services.HubService:GetHubs() do
+		for index, spot in LayerConfig.Get(hub.layer).veins do
+			table.insert(veins, buildVein(hub.veinFolder, hub.layer, spot, index))
+		end
 	end
 	Players.PlayerRemoving:Connect(function(player)
 		lastNag[player] = nil

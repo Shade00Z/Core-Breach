@@ -1,7 +1,8 @@
 -- EconomyService
 -- Coins and rebirths.
 --
--- Coins: a wave is worth WaveService.WaveCoins(wave, coinMultiplier). Each
+-- Coins: a wave is worth WaveService.WaveCoins(wave, coinMultiplier), times
+-- your layer's coin bonus (LayerConfig). Each
 -- kill drops its share of that by HP, so clearing a whole wave drops the full
 -- amount and enemies that leak through the barricade drop nothing.
 -- Drops land on the player's side of the barricade and only count once the
@@ -27,6 +28,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local LaneConfig = require(Shared:WaitForChild("LaneConfig"))
 local Config = require(Shared:WaitForChild("ProgressionConfig"))
+local LayerConfig = require(Shared:WaitForChild("LayerConfig"))
 local FXBatcher = require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("FXBatcher"))
 
 local STATS_INTERVAL = 0.1 -- send coin updates at most 10 times a second
@@ -168,7 +170,9 @@ end
 local function onEnemyKilled(lane, enemy)
 	local player = lane.owner
 	local data = DataService:Get(player)
-	local value = WaveService.WaveCoins(lane.wave, data.coinMultiplier) * (enemy.maxHp / lane.waveTotalHp)
+	-- Deeper layers pay more (LayerConfig coinMultiplier)
+	local multiplier = data.coinMultiplier * LayerConfig.Get(lane.layer).coinMultiplier
+	local value = WaveService.WaveCoins(lane.wave, multiplier) * (enemy.maxHp / lane.waveTotalHp)
 	local deathPosition = lane.origin * Vector3.new(enemy.lateral, 0, -enemy.dist)
 	local state = stateFor(player)
 
@@ -229,7 +233,8 @@ end
 -- Coins per second an active player earns at their current wave
 local function activeCoinRate(data): number
 	local lastCleared = math.max(1, (data.wave or 1) - 1)
-	return Config.CoinsForWave(lastCleared, data.coinMultiplier) / Config.Offline.AverageWaveSeconds
+	local multiplier = data.coinMultiplier * LayerConfig.Get(data.layer).coinMultiplier
+	return Config.CoinsForWave(lastCleared, multiplier) / Config.Offline.AverageWaveSeconds
 end
 
 local function pushOffline(player: Player)
