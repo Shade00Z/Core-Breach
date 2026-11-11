@@ -95,9 +95,24 @@ function EconomyService:CanRebirth(player: Player): boolean
 	return data.lostThisRun and Config.RebirthGain(data.runBestWave) > 0
 end
 
+-- Everything that multiplies coins: rebirths, your layer and permanent
+-- boosts (Gear Index pages)
+function EconomyService:CoinMultiplier(player: Player, layer: number?): number
+	local data = DataService:Get(player)
+	return data.coinMultiplier * LayerConfig.Get(layer or data.layer).coinMultiplier * services.CharacterService:GetEffects(player).coins
+end
+
+-- Coins worth this many of your current waves (quest, boss and daily rewards)
+function EconomyService:WaveReward(player: Player, waves: number): number
+	local data = DataService:Get(player)
+	return Config.CoinsForWave(math.max(1, data.wave - 1), self:CoinMultiplier(player)) * waves
+end
+
 local function pushRebirthStats(player: Player)
 	local data = DataService:Get(player)
 	EconomyService:PushStats(player, {
+		reDrills = data.reDrills,
+		reDrillNeeds = Config.ReDrill.RebirthsNeeded,
 		rebirths = data.rebirths,
 		coinMultiplier = data.coinMultiplier,
 		runBestWave = data.runBestWave,
@@ -146,6 +161,51 @@ function EconomyService:Rebirth(player: Player): boolean
 end
 
 ------------------------------------------------------------------------
+-- Re-Drill: at the Big Drill in Drill Town, once you have enough rebirths.
+-- Resets your rebirths (coin bonus back to x1), your wave and your layer
+-- (back to Layer 1; beat Rootmaw again to go down). Keeps coins, gear,
+-- opened slots and your hero. In return: x1.5 gear damage and +10% luck
+-- for good, per Re-Drill (Boosts).
+------------------------------------------------------------------------
+
+function EconomyService:CanReDrill(player: Player): boolean
+	return DataService:Get(player).rebirths >= Config.ReDrill.RebirthsNeeded
+end
+
+function EconomyService:ReDrill(player: Player): boolean
+	local now = os.clock()
+	if lastRebirth[player] and now - lastRebirth[player] < REBIRTH_COOLDOWN then
+		return false
+	end
+	if not self:CanReDrill(player) or not services.TownService:NearBigDrill(player) then
+		return false
+	end
+	lastRebirth[player] = now
+
+	local data = DataService:Get(player)
+	data.reDrills += 1
+	data.rebirths = 0
+	data.coinMultiplier = 1
+	data.runBestWave = 0
+	data.lostThisRun = false
+	data.recordAnnounced = false
+	data.bossesBeaten = {}
+	WaveService:ResetLane(player, 1)
+	services.HubService:MoveToLayer(player, 1)
+	services.CharacterService:RefreshBoosts(player)
+	pushRebirthStats(player)
+
+	notifyRemote:FireClient(player, string.format(
+		"Re-Drill %d! Gear damage x%.2f and luck +%d%% for good. Back to Layer 1, wave 1: beat Rootmaw to go down again.",
+		data.reDrills,
+		Config.ReDrill.DPSMult ^ data.reDrills,
+		math.floor(Config.ReDrill.LuckBonus * data.reDrills * 100 + 0.5)
+	))
+	Remotes.Event("Announce"):FireAllClients(string.format("%s just Re-Drilled! (Re-Drill %d)", player.DisplayName, data.reDrills), "ReDrill")
+	return true
+end
+
+------------------------------------------------------------------------
 -- Drops
 ------------------------------------------------------------------------
 
@@ -169,9 +229,8 @@ end
 
 local function onEnemyKilled(lane, enemy)
 	local player = lane.owner
-	local data = DataService:Get(player)
-	-- Deeper layers pay more (LayerConfig coinMultiplier)
-	local multiplier = data.coinMultiplier * LayerConfig.Get(lane.layer).coinMultiplier
+	-- Deeper layers pay more (LayerConfig coinMultiplier), and so do Gear Index pages
+	local multiplier = EconomyService:CoinMultiplier(lane.owner, lane.layer)
 	local value = WaveService.WaveCoins(lane.wave, multiplier) * (enemy.maxHp / lane.waveTotalHp)
 	local deathPosition = lane.origin * Vector3.new(enemy.lateral, 0, -enemy.dist)
 	local state = stateFor(player)
@@ -202,12 +261,12 @@ local function onEnemyKilled(lane, enemy)
 end
 
 local function checkPickups()
-	local radius = LaneConfig.CoinDrops.PickupRadius
-	local radiusSq = radius * radius
 	for player, state in dropStates do
 		if state.count == 0 then
 			continue
 		end
+		local radius = LaneConfig.CoinDrops.PickupRadius
+		local radiusSq = radius * radius
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
 		if not root then
@@ -231,10 +290,9 @@ end
 ------------------------------------------------------------------------
 
 -- Coins per second an active player earns at their current wave
-local function activeCoinRate(data): number
+local function activeCoinRate(player: Player, data): number
 	local lastCleared = math.max(1, (data.wave or 1) - 1)
-	local multiplier = data.coinMultiplier * LayerConfig.Get(data.layer).coinMultiplier
-	return Config.CoinsForWave(lastCleared, multiplier) / Config.Offline.AverageWaveSeconds
+	return Config.CoinsForWave(lastCleared, EconomyService:CoinMultiplier(player)) / Config.Offline.AverageWaveSeconds
 end
 
 local function pushOffline(player: Player)
@@ -253,9 +311,9 @@ function EconomyService:CheckOffline(player: Player)
 	if data.lastOnline > 0 then
 		local away = now - data.lastOnline
 		if away >= OFFLINE_MIN_SECONDS then
-			local coins = Config.OfflineCoins(away, activeCoinRate(data))
+			local cap = Config.Offline.MaxHours * 3600
+			local coins = math.min(away, cap) * activeCoinRate(player, data) * Config.Offline.Rate
 			if coins >= 1 then
-				local cap = Config.Offline.MaxHours * 3600
 				data.offlinePending += coins
 				data.offlineSeconds = math.min(cap, data.offlineSeconds + math.min(away, cap))
 			end
@@ -330,6 +388,9 @@ function EconomyService:Start()
 
 	Remotes.Event("RequestRebirth").OnServerEvent:Connect(function(player)
 		EconomyService:Rebirth(player)
+	end)
+	Remotes.Event("RequestReDrill").OnServerEvent:Connect(function(player)
+		EconomyService:ReDrill(player)
 	end)
 
 	Remotes.Event("CollectOffline").OnServerEvent:Connect(collectOffline)

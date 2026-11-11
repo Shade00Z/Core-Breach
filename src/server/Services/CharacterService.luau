@@ -29,6 +29,7 @@ local HeroConfig = require(Shared:WaitForChild("HeroConfig"))
 local LaneConfig = require(Shared:WaitForChild("LaneConfig"))
 local LootConfig = require(Shared:WaitForChild("LootConfig"))
 local LayerConfig = require(Shared:WaitForChild("LayerConfig"))
+local Boosts = require(Shared:WaitForChild("Boosts"))
 
 local HANDLE_COLOR = Color3.fromRGB(110, 75, 45)
 local HEAD_COLOR = Color3.fromRGB(90, 95, 105)
@@ -50,11 +51,17 @@ local dirty: { [Player]: boolean } = {}
 -- Stats and effects
 ------------------------------------------------------------------------
 
--- Everything the player's stat points add up to (multipliers, max health).
+-- Everything the player's stat points add up to (multipliers, max health),
+-- with permanent boosts on top (Re-Drills and Gear Index pages: Boosts).
 function CharacterService:GetEffects(player: Player): HeroConfig.Effects
 	local effects = effectsCache[player]
 	if not effects then
-		effects = HeroConfig.Effects(services.DataService:Get(player).stats)
+		local data = services.DataService:Get(player)
+		effects = HeroConfig.Effects(data.stats)
+		local boosts = Boosts.For(data)
+		effects.gearDamage *= boosts.damage
+		effects.luck *= boosts.luck
+		effects.coins = boosts.coins
 		effectsCache[player] = effects
 	end
 	return effects
@@ -68,9 +75,10 @@ function CharacterService:FireBlastDamage(player: Player): number
 	return HeroConfig.FireBlastDamage(services.DataService:Get(player).level, self:GetEffects(player))
 end
 
--- Level cap: each layer has its own (LayerConfig levelCap)
+-- Level cap: each layer has its own (LayerConfig levelCap). It follows the
+-- deepest layer you've ever reached, so a Re-Drill never lowers it.
 local function capFor(data): number
-	return LayerConfig.LevelCap(data.layer)
+	return LayerConfig.LevelCap(math.max(data.layer, data.deepestEver or 1))
 end
 
 local function pointsSpent(data): number
@@ -116,6 +124,19 @@ local function applyHealth(player: Player, healFully: boolean?)
 	humanoid.Health = if healFully then maxHealth else maxHealth * fraction
 end
 
+-- Gear Index and Re-Drill info for the Index screen
+local function pushBoosts(player: Player)
+	local data = services.DataService:Get(player)
+	local boosts = Boosts.For(data)
+	local discovered = {}
+	for gearId in data.discovered do
+		table.insert(discovered, gearId)
+	end
+	services.EconomyService:PushStats(player, {
+		boosts = { damage = boosts.damage, coins = boosts.coins, luck = boosts.luck, reDrills = data.reDrills, discovered = discovered },
+	})
+end
+
 -- Recalculate effects after stats change, and tell everything that uses them
 local function statsChanged(player: Player)
 	effectsCache[player] = nil
@@ -123,6 +144,23 @@ local function statsChanged(player: Player)
 	services.GearService:RefreshDps(player) -- Command
 	services.CrateService:Refresh(player) -- Fortune (luck shown on the HUD)
 	pushHero(player)
+end
+
+-- Permanent boosts changed (a Re-Drill, or a gear discovered for the Index)
+function CharacterService:RefreshBoosts(player: Player)
+	statsChanged(player)
+	pushBoosts(player)
+end
+
+-- A gear was owned for the first time. Announces a completed Index page.
+function CharacterService:OnDiscovered(player: Player, gearId: string)
+	local data = services.DataService:Get(player)
+	for _, page in Boosts.Pages do
+		if table.find(page.gear, gearId) and Boosts.PageComplete(page, data.discovered) then
+			notify:FireClient(player, string.format("Gear Index page complete: %s! %s for good.", page.name, page.bonusText))
+		end
+	end
+	self:RefreshBoosts(player)
 end
 
 local function spendStat(player: Player, statId: unknown, count: unknown)
@@ -344,10 +382,12 @@ function CharacterService:Start()
 		effectsCache[player] = nil
 		applyHealth(player, true)
 		pushHero(player)
+		pushBoosts(player)
 	end)
 	for _, player in Players:GetPlayers() do
 		if DataService:IsLoaded(player) then
 			pushHero(player)
+			pushBoosts(player)
 		end
 	end
 

@@ -41,6 +41,10 @@ local LOOKS = {
 	[4] = { size = Vector3.new(3.6, 4.6, 3.6), color = Color3.fromRGB(125, 125, 140) }, -- Rock Golem
 	[5] = { size = Vector3.new(2.8, 1, 2.2), color = Color3.fromRGB(85, 60, 110), hover = 3 }, -- Cave Bat (flies)
 	[6] = { size = Vector3.new(9, 11, 9), color = Color3.fromRGB(80, 140, 210) }, -- Vault Warden (wave boss)
+	-- Magma Belt
+	[7] = { size = Vector3.new(4.2, 5, 4.2), color = Color3.fromRGB(110, 50, 30) }, -- Magma Brute
+	[8] = { size = Vector3.new(2, 2.6, 2), color = Color3.fromRGB(255, 120, 40) }, -- Ember Imp
+	[9] = { size = Vector3.new(10, 12, 10), color = Color3.fromRGB(230, 70, 20) }, -- Lava Titan (wave boss)
 } :: { [number]: { size: Vector3, color: Color3, hover: number? } }
 
 type Visual = {

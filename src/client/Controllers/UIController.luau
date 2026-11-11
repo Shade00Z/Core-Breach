@@ -59,6 +59,8 @@ local xpText: TextLabel
 local debugLabel: TextLabel
 local toastList: Frame
 local toastCount = 0
+local announceBanner: TextLabel
+local announceToken = 0
 local hpFill: Frame
 
 local function makeLabel(parent: Instance, size: UDim2, position: UDim2, textSize: number): TextLabel
@@ -292,8 +294,37 @@ function UIController:Init(controllers)
 	debugLabel.Text = "DEBUG MODE"
 	debugLabel.Visible = false
 
+	-- Server-wide announcements (Mythic pulls, Re-Drills), under the wave bar
+	announceBanner = makeLabel(gui, UDim2.new(0, 520, 0, 40), UDim2.new(0.5, -260, 0, 168), 22)
+	announceBanner.Name = "Announcement"
+	announceBanner.BackgroundColor3 = Color3.fromRGB(40, 10, 30)
+	announceBanner.BackgroundTransparency = 0.15
+	announceBanner.TextColor3 = Color3.fromRGB(255, 120, 190)
+	announceBanner.Visible = false
+	Instance.new("UICorner", announceBanner).CornerRadius = UDim.new(0, 10)
+	local announceStroke = Instance.new("UIStroke")
+	announceStroke.Color = Color3.fromRGB(255, 60, 140)
+	announceStroke.Thickness = 2
+	announceStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	announceStroke.Parent = announceBanner
+
 	refreshStats()
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- A big banner for news the whole server hears about
+function UIController:Announce(text: string, kind: string?)
+	announceToken += 1
+	local token = announceToken
+	announceBanner.Text = text
+	announceBanner.TextColor3 = if kind == "ReDrill" then Color3.fromRGB(255, 190, 110) else Color3.fromRGB(255, 120, 190)
+	announceBanner.Visible = true
+	SoundController:Play(if kind == "Mythic" then "RevealLegendary" else "NewRecord")
+	task.delay(6, function()
+		if announceToken == token then
+			announceBanner.Visible = false
+		end
+	end)
 end
 
 -- The ScreenGui other controllers add their panels to.
@@ -323,6 +354,12 @@ function UIController:Start()
 		bossBar.Visible = bossShown
 		if header.bossHealth then
 			bossFill.Size = UDim2.new(math.clamp(header.bossHealth, 0, 1), 0, 1, 0)
+		end
+	end)
+
+	Remotes.Event("Announce").OnClientEvent:Connect(function(text, kind)
+		if type(text) == "string" then
+			UIController:Announce(text, kind)
 		end
 	end)
 

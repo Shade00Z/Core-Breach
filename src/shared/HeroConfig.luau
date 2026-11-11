@@ -95,6 +95,7 @@ export type Effects = {
 	luck: number,
 	barricade: number,
 	maxHealth: number, -- hit points
+	coins: number, -- coin multiplier from permanent boosts (Boosts: Gear Index); 1 from stats alone
 }
 
 -- XP needed to go from this level to the next
@@ -118,6 +119,7 @@ function HeroConfig.Effects(stats: { [string]: number }?): Effects
 		luck = 1,
 		barricade = 1,
 		maxHealth = HeroConfig.Health.Base,
+		coins = 1,
 	}
 	for _, stat in HeroConfig.Stats do
 		local points = stats and stats[stat.id] or 0

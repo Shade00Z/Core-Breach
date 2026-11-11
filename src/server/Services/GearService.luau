@@ -117,6 +117,7 @@ local function pushDps(player: Player, state: State?)
 			maxed = maxed,
 			forge = if o.forge then { mult = o.forge.mult, traits = table.clone(o.forge.traits) } else nil,
 			dps = gearDps(data, gearId),
+			levelCost = if maxed then 0 else GearData.LevelCost(GearData.Get(gearId) :: GearData.Gear, o.level),
 		}
 	end
 	EconomyService:PushStats(player, {
@@ -356,7 +357,13 @@ function GearService:Give(player: Player, gearId: string): string
 	local state = states[player]
 	local owned = data.owned[gearId]
 
+	local firstTime = not data.discovered[gearId]
 	data.discovered[gearId] = true
+	if firstTime then
+		task.defer(function() -- after the gear is mounted, so the DPS update includes it
+			CharacterService:OnDiscovered(player, gearId) -- Gear Index
+		end)
+	end
 	if not owned then
 		data.owned[gearId] = { level = 1, copies = 0 }
 		local message = autoMount(player, gearId)
@@ -395,6 +402,35 @@ function GearService:Give(player: Player, gearId: string): string
 	end
 	pushDps(player, state)
 	return message
+end
+
+-- Buys the next level of an owned gear with coins (gear panel). The cost
+-- climbs every level (GearData.LevelCost). Returns a message.
+function GearService:BuyLevel(player: Player, gearId: string): string?
+	local gear = GearData.Get(gearId)
+	local data = DataService:Get(player)
+	local owned = data.owned[gearId]
+	if not gear or not owned then
+		return nil
+	end
+	if owned.level >= GearData.Levels.MaxLevel then
+		return gear.name .. " is already max level."
+	end
+	if not EconomyService:SpendCoins(player, GearData.LevelCost(gear, owned.level)) then
+		return "Not enough coins to level up " .. gear.name .. "."
+	end
+	owned.level += 1
+	local state = states[player]
+	local slotIndex = mountedSlotOf(data, gearId)
+	if slotIndex and state and state.mounted[slotIndex] then
+		state.mounted[slotIndex].level = owned.level
+		local model = slotPart(state.lane, slotIndex):FindFirstChild("Gear")
+		if model then
+			GearVisuals.SetLevel(model, owned.level, owned.forge)
+		end
+	end
+	pushDps(player, state)
+	return gear.name .. " is now " .. (if owned.level >= GearData.Levels.MaxLevel then "MAX level" else "Lv " .. owned.level) .. "!"
 end
 
 -- Rebuilds the wall from the player's data (used after a rebirth).
@@ -564,6 +600,8 @@ function GearService:Start()
 			message = GearService:Equip(player, gearId)
 		elseif action == "Unequip" then
 			message = GearService:Unequip(player, gearId)
+		elseif action == "BuyLevel" then
+			message = GearService:BuyLevel(player, gearId)
 		end
 		if message then
 			notify:FireClient(player, message)

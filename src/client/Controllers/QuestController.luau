@@ -69,9 +69,23 @@ local function button(text: string, color: Color3, onClick: () -> ()): TextButto
 	return b
 end
 
-local function questInfo(): { [string]: any }?
-	local quest = UIController.Stats.quest
-	return if type(quest) == "table" then quest else nil
+-- Your progress in one layer's quest line (nil if that layer isn't unlocked)
+local function questInfo(layer: number): { [string]: any }?
+	local lines = UIController.Stats.quests
+	local info = if type(lines) == "table" then lines[tostring(layer)] else nil
+	if type(info) == "table" then
+		info.layer = layer
+		return info
+	end
+	return nil
+end
+
+-- The line the tracker shows: the layer you're in (your lane's layer when
+-- you're in Drill Town)
+local function trackedLayer(): number
+	local stats = UIController.Stats
+	local here = stats.here
+	return if type(here) == "number" and here > 0 then here else (stats.layer or 1)
 end
 
 local function isComplete(info, quest: QuestConfig.Quest?): boolean
@@ -87,8 +101,14 @@ local function close()
 	talkingTo = nil
 end
 
+local dialogKey = ""
+
 local function showDialog()
-	local info = questInfo()
+	local info = questInfo(talkingLayer)
+	do
+		local quest = info and QuestConfig.Get(talkingLayer, info.step)
+		dialogKey = if info then string.format("%d/%s/%s", info.step, tostring(info.active), tostring(isComplete(info, quest))) else "none"
+	end
 	for _, child in buttonRow:GetChildren() do
 		if child:IsA("TextButton") then
 			child:Destroy()
@@ -111,7 +131,7 @@ local function showDialog()
 			goalLabel.Text = string.format("NEW QUEST %d/%d: %s\nGoal: %s\nReward: XP and coins", info.step, info.total, quest.title, QuestConfig.Describe(quest, talkingLayer))
 			button("Not now", GRAY, close)
 			button("Accept", GREEN, function()
-				actionRemote:FireServer("Accept")
+				actionRemote:FireServer("Accept", talkingLayer)
 				SoundController:Play("QuestAccept")
 				close()
 			end)
@@ -119,7 +139,7 @@ local function showDialog()
 			bodyLabel.Text = quest.done
 			goalLabel.Text = string.format("%s: done!", quest.title)
 			button("Turn in", GREEN, function()
-				actionRemote:FireServer("TurnIn")
+				actionRemote:FireServer("TurnIn", talkingLayer)
 				SoundController:Play("QuestDone")
 				close()
 			end)
@@ -136,7 +156,7 @@ end
 -- Tracker and the "!" over the giver
 ------------------------------------------------------------------------
 
-local function refreshMarkers(info)
+local function refreshMarkers()
 	local hubs = workspace:FindFirstChild("Hubs")
 	if not hubs then
 		return
@@ -147,7 +167,8 @@ local function refreshMarkers(info)
 		if marker and marker:IsA("BillboardGui") then
 			local text = marker:FindFirstChildOfClass("TextLabel")
 			local show, symbol = false, "!"
-			if info and hub:GetAttribute("Layer") == info.layer then
+			local info = questInfo(hub:GetAttribute("Layer") or 0)
+			if info then
 				local quest = QuestConfig.Get(info.layer, info.step)
 				if quest and not info.active then
 					show = true
@@ -164,7 +185,8 @@ local function refreshMarkers(info)
 end
 
 local function refresh()
-	local info = questInfo()
+	refreshMarkers()
+	local info = questInfo(trackedLayer())
 	if not info then
 		tracker.Visible = false
 		return
@@ -184,9 +206,16 @@ local function refresh()
 			trackerText.Text = string.format("%s  (%d/%d)", QuestConfig.Describe(quest, info.layer), info.progress, quest.count)
 		end
 	end
-	refreshMarkers(info)
+	-- Rebuild the open dialogue only when its quest changes state (taken,
+	-- done, turned in), not on every bit of progress: rebuilding replaces
+	-- the buttons, which can eat a click
 	if dialog.Visible then
-		showDialog()
+		local info = questInfo(talkingLayer)
+		local quest = info and QuestConfig.Get(talkingLayer, info.step)
+		local key = if info then string.format("%d/%s/%s", info.step, tostring(info.active), tostring(isComplete(info, quest))) else "none"
+		if key ~= dialogKey then
+			showDialog()
+		end
 	end
 end
 
@@ -284,17 +313,17 @@ function QuestController:Start()
 		end
 	end)
 
+	local lastHere = nil
 	UIController.StatsUpdated:Connect(function(stats)
-		if stats.quest ~= lastQuest then
-			lastQuest = stats.quest
+		if stats.quests ~= lastQuest or stats.here ~= lastHere then
+			lastQuest = stats.quests
+			lastHere = stats.here
 			refresh()
 		end
 	end)
 	refresh()
 	-- The hubs may stream in after the first quest update
-	task.delay(3, function()
-		refreshMarkers(questInfo())
-	end)
+	task.delay(3, refreshMarkers)
 
 	local timer = 0
 	RunService.Heartbeat:Connect(function(dt)

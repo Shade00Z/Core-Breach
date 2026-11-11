@@ -5,10 +5,11 @@
 --
 -- Quest kinds (what counts toward it):
 --   kills      enemies killed in your lane (by anything)
---   heroKills  enemies killed by your own pickaxe or Fire Blast
+--   heroKills  enemies killed by your own pickaxe or Core Power abilities
 --   mine       ore mined (item = which ore)
 --   forge      forge strikes
 --   waves      waves beaten in your lane
+--   ability    Core Power abilities used (any that hit something or not)
 --   boss       beating this layer's boss (turned in automatically, since the
 --              floor seal drops you into the next layer)
 --
@@ -21,7 +22,7 @@ local LayerConfig = require(script.Parent:WaitForChild("LayerConfig"))
 
 export type Quest = {
 	title: string,
-	kind: "kills" | "heroKills" | "mine" | "forge" | "waves" | "boss",
+	kind: "kills" | "heroKills" | "mine" | "forge" | "waves" | "boss" | "ability",
 	item: string?, -- for "mine"
 	count: number,
 	offer: string, -- what the giver says when offering it
@@ -60,8 +61,8 @@ QuestConfig.Lines = {
 				title = "Swing It Yourself",
 				kind = "heroKills",
 				count = 20,
-				offer = "Your gear does the heavy lifting, but a real miner knows how to swing. Hop over your barricade and take down 20 of them with your own pickaxe or a Fire Blast.",
-				reminder = "Jump the barricade and get your hands dirty. Pickaxe or Fire Blast, both count.",
+				offer = "Your gear does the heavy lifting, but a real miner knows how to swing. Hop over your barricade and take down 20 of them with your own pickaxe.",
+				reminder = "Jump the barricade and get your hands dirty. Your pickaxe and Core Power abilities both count.",
 				done = "Now that's a miner. Keep that arm strong.",
 				reward = { xpLevels = 1, coinWaves = 3 },
 			},
@@ -100,7 +101,7 @@ QuestConfig.Lines = {
 	-- Layer 2: Stone Vault
 	[2] = {
 		giver = "Warden Sela",
-		allDone = "That's every job I have. The vault's boss sleeps until the way to the Magma Belt opens. Soon.",
+		allDone = "That's every job I have. If you can beat the Vault Colossus in the arena, the way to the Magma Belt opens.",
 		elsewhere = "You don't work this layer anymore.",
 		quests = {
 			{
@@ -127,7 +128,7 @@ QuestConfig.Lines = {
 				kind = "heroKills",
 				count = 40,
 				offer = "Bats are quick, but they don't like a pickaxe to the face. Take down 40 enemies yourself.",
-				reminder = "Pickaxe or Fire Blast, 40 of them. Bats come in low, so swing early.",
+				reminder = "Pickaxe or Core Power, 40 of them. Bats come in low, so swing early.",
 				done = "Your swing's getting sharp.",
 				reward = { xpLevels = 1.5, coinWaves = 4 },
 			},
@@ -151,6 +152,61 @@ QuestConfig.Lines = {
 			},
 		},
 	},
+	-- Layer 3: Magma Belt
+	[3] = {
+		giver = "Smelter Brann",
+		allDone = "The Molten King bows to you. Below us there's only ice, they say. A Frost Rift. We'll see.",
+		elsewhere = "You don't work the Belt anymore.",
+		quests = {
+			{
+				title = "Brute Force",
+				kind = "kills",
+				count = 300,
+				offer = "Hot enough for you? I'm Brann, I run the smelters. Magma brutes keep wrecking the lines. Put 300 of them down.",
+				reminder = "Brutes are slow and tough, imps are fast. Your gear wall does the heavy work.",
+				done = "Ha! The lines are flowing again.",
+				reward = { xpLevels = 1, coinWaves = 3 },
+			},
+			{
+				title = "Hot Rocks",
+				kind = "mine",
+				item = "magma_ore",
+				count = 20,
+				offer = "Magma Ore is the best forge feed there is. It's at the far end of the mine, and only an Obsidian Pickaxe can crack it. Bring me 20.",
+				reminder = "Magma Ore needs an Obsidian Pickaxe (upgrade at the forge). Sometimes a vein spits out a Power Crystal too.",
+				done = "Still glowing. Beautiful.",
+				reward = { xpLevels = 1.5, coinWaves = 4 },
+			},
+			{
+				title = "Power Play",
+				kind = "ability",
+				count = 40,
+				offer = "You've got a Core Power? Good. Use it. The more you use it, the more it opens up to you. Use your abilities 40 times.",
+				reminder = "Any of your Core Power's abilities count. Open Power Crystals in the Powers menu if you don't have one.",
+				done = "I felt that one from here.",
+				reward = { xpLevels = 1.5, coinWaves = 4 },
+			},
+			{
+				title = "Heat Wave",
+				kind = "waves",
+				count = 20,
+				offer = "The Belt's waves don't let up. Beat 20 of them.",
+				reminder = "Keep beating waves. Losing one doesn't reset your count.",
+				done = "Twenty waves in this heat. Respect.",
+				reward = { xpLevels = 2, coinWaves = 6 },
+			},
+			{
+				title = "King of the Belt",
+				kind = "boss",
+				count = 1,
+				offer = "The Molten King sits in the arena, south of here. Level 150 and then some. Bring friends.",
+				reminder = "The Molten King waits in the arena. You'll need level 150.",
+				done = "You did it. The Belt is yours.",
+				reward = { xpLevels = 2, coinWaves = 8 },
+				autoTurnIn = true,
+			},
+		},
+	},
 } :: { [number]: Line }
 
 -- One line describing what a quest needs ("Mine 30 Copper Ore")
@@ -158,7 +214,7 @@ function QuestConfig.Describe(quest: Quest, layer: number?): string
 	if quest.kind == "kills" then
 		return string.format("Defeat %d enemies in your lane", quest.count)
 	elseif quest.kind == "heroKills" then
-		return string.format("Defeat %d enemies with your pickaxe or Fire Blast", quest.count)
+		return string.format("Defeat %d enemies yourself (pickaxe or Core Power)", quest.count)
 	elseif quest.kind == "mine" then
 		local item = quest.item and LootConfig.Items[quest.item]
 		return string.format("Mine %d %s", quest.count, if item then item.name else "ore")
@@ -166,6 +222,8 @@ function QuestConfig.Describe(quest: Quest, layer: number?): string
 		return if quest.count == 1 then "Strike the forge once" else string.format("Strike the forge %d times", quest.count)
 	elseif quest.kind == "waves" then
 		return string.format("Beat %d waves in your lane", quest.count)
+	elseif quest.kind == "ability" then
+		return string.format("Use your Core Power abilities %d times", quest.count)
 	elseif quest.kind == "boss" then
 		local boss = LayerConfig.Get(layer).boss
 		return if boss then string.format("Defeat %s (level %d) in the arena", boss.name, boss.level) else "Defeat the layer boss"

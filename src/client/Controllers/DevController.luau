@@ -17,6 +17,7 @@ local remote: RemoteEvent
 local panel: Frame
 local speedButtons: { [number]: TextButton } = {}
 local invincibleButton: TextButton
+local PowerController
 local stressButton: TextButton
 
 local BUTTON_COLOR = Color3.fromRGB(60, 60, 72)
@@ -84,6 +85,7 @@ end
 
 function DevController:Init(controllers)
 	UIController = controllers.UIController
+	PowerController = controllers.PowerController
 	if not DebugConfig.IsActive(Players.LocalPlayer) then
 		return
 	end
@@ -192,8 +194,34 @@ function DevController:Init(controllers)
 	makeButton(layerRow, "Layer 2", function()
 		send("Layer", 2)
 	end)
+	makeButton(layerRow, "Layer 3", function()
+		send("Layer", 3)
+	end)
 	makeButton(layerRow, "Quest done", function()
 		send("QuestDone")
+	end)
+
+	local dailyRow = makeRow("Re-Drill & daily", 8)
+	makeButton(dailyRow, "12 rebirths", function()
+		send("ReDrillReady")
+	end)
+	makeButton(dailyRow, "New day", function()
+		send("NewDay")
+	end)
+	makeButton(dailyRow, "+Lucky roll", function()
+		send("LuckyRoll")
+	end)
+
+	local powerRow = makeRow("Core Powers", 9)
+	makeButton(powerRow, "+3 crystals", function()
+		send("Crystals")
+	end)
+	makeButton(powerRow, "+2000 mastery", function()
+		send("Mastery")
+	end)
+	makeButton(powerRow, "No cooldowns", function()
+		send("ResetCooldowns")
+		PowerController.ResetCooldowns()
 	end)
 
 	-- Needs a second click within 3 seconds, so it's never hit by accident

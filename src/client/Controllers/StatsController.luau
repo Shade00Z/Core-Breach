@@ -83,9 +83,8 @@ local function refresh()
 		row.plusFive.Text = if points >= 1 then "+" .. math.min(5, points) else "+5"
 	end
 	footer.Text = string.format(
-		"Swing %s  ·  Fire Blast %s  ·  Level cap %d",
+		"Swing %s  ·  Core Powers hit for a multiple of this  ·  Level cap %d",
 		Format.Number(hero.swingDamage or 0),
-		Format.Number(hero.fireBlastDamage or 0),
 		hero.cap or HeroConfig.Levels.Cap
 	)
 end
@@ -124,7 +123,7 @@ function StatsController:Init(controllers)
 	panel.Name = "StatsPanel"
 	local panelHeight = 46 + #HeroConfig.Stats * (ROW_HEIGHT + 6) + 34
 	panel.AnchorPoint = Vector2.new(0, 0.5)
-	panel.Position = UDim2.new(0, 112, 0.5, 0)
+	panel.Position = UDim2.new(0, 210, 0.5, 0)
 	panel.Size = UDim2.new(0, 420, 0, panelHeight)
 	panel.BackgroundColor3 = Color3.fromRGB(22, 20, 28)
 	panel.BackgroundTransparency = 0.05

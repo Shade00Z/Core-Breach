@@ -1,5 +1,6 @@
 -- GearController
--- The gear panel: every gun you own, its level and DPS, and Equip/Unequip.
+-- The gear panel: every gun you own, its level and DPS, Equip/Unequip, and
+-- buying its next level with coins (the price climbs every level).
 -- Open it with the Gear button on the left. The server sends the gear list
 -- in StatsChanged (stats.gear) and does the equipping.
 
@@ -110,7 +111,8 @@ local function rebuild()
 		bar.Parent = frame
 		Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 3)
 
-		label(frame, gear.name, UDim2.new(0, 190, 0, 22), UDim2.new(0, 20, 0, 4), 17, rarity.color)
+		local nameLabel = label(frame, gear.name, UDim2.new(0, 180, 0, 22), UDim2.new(0, 20, 0, 4), 17, rarity.color)
+		nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
 		local levelText = if owned.maxed then "MAX level" else string.format("Lv %d  ·  %d/%d to Lv %d", owned.level, owned.copies, owned.needed, owned.level + 1)
 		if owned.forge then
 			levelText ..= string.format("  ·  x%.2f", owned.forge.mult)
@@ -118,9 +120,25 @@ local function rebuild()
 				levelText ..= " " .. LootConfig.Traits[trait].name
 			end
 		end
-		label(frame, levelText, UDim2.new(0, 190, 0, 18), UDim2.new(0, 20, 0, 26), 13, Color3.fromRGB(200, 200, 210))
-		local dpsLabel = label(frame, Format.Number(row.dps) .. " DPS", UDim2.new(0, 80, 1, 0), UDim2.new(0, 205, 0, 0), 15)
+		local levelLabel = label(frame, levelText, UDim2.new(0, 180, 0, 18), UDim2.new(0, 20, 0, 26), 13, Color3.fromRGB(200, 200, 210))
+		levelLabel.TextTruncate = Enum.TextTruncate.AtEnd
+		local dpsLabel = label(frame, Format.Number(row.dps) .. " DPS", UDim2.new(0, 84, 1, 0), UDim2.new(0, 200, 0, 0), 15)
 		dpsLabel.TextXAlignment = Enum.TextXAlignment.Right
+
+		-- Buy the next level with coins
+		local levelButton
+		if owned.maxed then
+			levelButton = button(frame, "MAX", Color3.fromRGB(80, 80, 90), UDim2.new(0, 84, 0, 34), UDim2.new(1, -178, 0, 8))
+			levelButton.AutoButtonColor = false
+		else
+			local cost = owned.levelCost or 0
+			local affordable = (UIController.Stats.coins or 0) >= cost
+			levelButton = button(frame, "Lv up\n$" .. Format.Number(cost), if affordable then Color3.fromRGB(200, 140, 40) else Color3.fromRGB(90, 80, 60), UDim2.new(0, 84, 0, 34), UDim2.new(1, -178, 0, 8))
+			levelButton.TextSize = 12
+			levelButton.Activated:Connect(function()
+				actionRemote:FireServer("BuyLevel", gear.id)
+			end)
+		end
 
 		local actionButton = if row.mounted
 			then button(frame, "Unequip", Color3.fromRGB(110, 110, 120), UDim2.new(0, 80, 0, 34), UDim2.new(1, -88, 0, 8))
@@ -141,8 +159,8 @@ function GearController:Init(controllers)
 
 	panel = Instance.new("Frame")
 	panel.Name = "GearPanel"
-	panel.Position = UDim2.new(0, 112, 0.5, -170)
-	panel.Size = UDim2.new(0, 400, 0, 340)
+	panel.Position = UDim2.new(0, 210, 0.5, -170)
+	panel.Size = UDim2.new(0, 500, 0, 340)
 	panel.BackgroundColor3 = Color3.fromRGB(22, 20, 28)
 	panel.BackgroundTransparency = 0.05
 	panel.Visible = false

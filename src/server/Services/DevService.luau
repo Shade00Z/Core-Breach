@@ -19,7 +19,10 @@
 --   UnlockRebirth  allow a rebirth without losing a wave
 --   UnlockSlots    open all six wall slots
 --   Layer n        move to layer n (1 also forgets beaten bosses, to refight them)
---   QuestDone      finish your active quest's goal
+--   QuestDone      finish your active quests' goals (and today's daily quests)
+--   ReDrillReady   set your rebirths to what a Re-Drill needs
+--   NewDay         start a new day for the daily hooks (streak, quests, Lucky Roll)
+--   LuckyRoll      +1 Lucky Roll
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -27,6 +30,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local DebugConfig = require(Shared:WaitForChild("DebugConfig"))
 local LayerConfig = require(Shared:WaitForChild("LayerConfig"))
+local Config = require(Shared:WaitForChild("ProgressionConfig"))
 
 local SPEEDS = { [1] = true, [2] = true, [5] = true, [10] = true }
 local MAX_COINS_PER_COMMAND = 1e12
@@ -105,6 +109,29 @@ local function run(player: Player, command: string, value: any)
 		notify:FireClient(player, "[DEV] Layer " .. value .. ": " .. LayerConfig.Layers[value].name)
 	elseif command == "QuestDone" then
 		services.QuestService:DevComplete(player)
+	elseif command == "ReDrillReady" then
+		services.DataService:Get(player).rebirths = math.max(services.DataService:Get(player).rebirths, Config.ReDrill.RebirthsNeeded)
+		services.EconomyService:RefreshRebirth(player)
+		notify:FireClient(player, "[DEV] Rebirths set to " .. Config.ReDrill.RebirthsNeeded .. ". Re-Drill at the Big Drill in Drill Town.")
+	elseif command == "NewDay" then
+		services.DailyService:DevNewDay(player)
+		notify:FireClient(player, "[DEV] New day started")
+	elseif command == "LuckyRoll" then
+		services.DataService:Get(player).daily.luckyRolls += 1
+		services.DailyService:Refresh(player)
+	elseif command == "Crystals" then
+		services.PowerService:GiveCrystals(player, 3)
+	elseif command == "Mastery" then
+		local power = services.PowerService:GetEquipped(player)
+		if power then
+			services.PowerService:AddMastery(player, power.id, 2000)
+			services.PowerService:Refresh(player)
+		else
+			notify:FireClient(player, "[DEV] Equip a power first")
+		end
+	elseif command == "ResetCooldowns" then
+		services.AbilityService:ResetCooldowns(player)
+		notify:FireClient(player, "[DEV] Ability cooldowns reset (server)")
 	elseif command == "UnlockSlots" then
 		for slotIndex = 1, 6 do
 			services.GearService:UnlockSlot(player, slotIndex)

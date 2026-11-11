@@ -9,7 +9,14 @@
 --
 -- Rolls happen on the server only. Luck rises each time you beat a new
 -- multiple of 10 waves for the first time, and rebirths keep it (CrateConfig).
--- Deeper layers add luck and their own gear set (LayerConfig, GearData).
+-- Deeper layers add luck (LayerConfig), and so do Re-Drills and Gear Index
+-- pages (Boosts, through the Fortune effects).
+-- Every gear can be rolled anywhere; luck decides how far up the price
+-- ladder your rolls reach (CrateConfig odds).
+--
+-- Lucky Rolls (from the daily hooks, DailyService) roll at double luck, and
+-- whatever they reveal is half price. Pulling a Mythic is announced to the whole
+-- server; Legendary and Mythic pulls show on Drill Town's pull board.
 -- Robux "skip cost" arrives in week 9; luck boosts are never sold for Robux.
 
 local Players = game:GetService("Players")
@@ -20,8 +27,11 @@ local GearData = require(Shared:WaitForChild("GearData"))
 local CrateConfig = require(Shared:WaitForChild("CrateConfig"))
 local LayerConfig = require(Shared:WaitForChild("LayerConfig"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local DailyConfig = require(Shared:WaitForChild("DailyConfig"))
 
-type Pending = { gearId: string, price: number }
+type Pending = { gearId: string, price: number, lucky: boolean? }
+
+local ANNOUNCE_DELAY = 2.5 -- seconds, so the server hears about it after you see your reveal
 
 local CrateService = {}
 
@@ -30,6 +40,7 @@ local EconomyService
 local GearService
 local WaveService
 local CharacterService
+local allServices
 
 local rng = Random.new()
 local lastRoll: { [Player]: number } = {}
@@ -69,17 +80,6 @@ local function pushCrateStats(player: Player)
 	})
 end
 
--- A random gear of this rarity from the ones your layer can roll
-local function pickGear(rarity: string, layer: number): GearData.Gear?
-	local options = GearData.ByRarity(rarity, layer)
-	if #options == 0 then
-		options = GearData.ByRarity("Common", layer)
-	end
-	if #options == 0 then
-		return nil
-	end
-	return options[rng:NextInteger(1, #options)]
-end
 
 local function sendResult(player: Player, roll: Pending, fresh: boolean)
 	local gear = GearData.Get(roll.gearId)
@@ -89,6 +89,7 @@ local function sendResult(player: Player, roll: Pending, fresh: boolean)
 	resultRemote:FireClient(player, {
 		gearId = gear.id,
 		price = roll.price,
+		lucky = roll.lucky or false,
 		fresh = fresh,
 		owned = GearService:GetOwnership(player, gear.id) or false,
 	})
@@ -98,7 +99,7 @@ end
 -- Rolling and decisions
 ------------------------------------------------------------------------
 
-function CrateService:Roll(player: Player)
+function CrateService:Roll(player: Player, lucky: boolean?)
 	local lane = WaveService:GetLane(player)
 	if not lane then
 		return
@@ -120,21 +121,32 @@ function CrateService:Roll(player: Player)
 	end
 
 	local now = os.clock()
-	if lastRoll[player] and now - lastRoll[player] < CrateConfig.RollCooldown then
+	if lastRoll[player] and now - lastRoll[player] < CrateConfig.RollCooldown - 0.05 then
+		return
+	end
+	if lucky and not allServices.DailyService:UseLuckyRoll(player) then
+		notify(player, "No Lucky Rolls left. You get one free every day.")
 		return
 	end
 	lastRoll[player] = now
 
-	local luck = luckFor(player)
-	local gear = pickGear(CrateConfig.PickRarity(luck, rng), DataService:Get(player).layer)
-	if not gear then
-		return
-	end
-
-	local roll: Pending = { gearId = gear.id, price = gear.price }
+	local luck = luckFor(player) * (if lucky then DailyConfig.LuckyRollLuck else 1)
+	local gear = CrateConfig.PickGear(luck, rng)
+	local price = if lucky then math.floor(gear.price * DailyConfig.LuckyRollPriceShare) else gear.price
+	local roll: Pending = { gearId = gear.id, price = price, lucky = lucky or nil }
 	setPending(player, roll)
 	DataService:Get(player).totalRolls += 1
 	sendResult(player, roll, true)
+
+	-- Big pulls: the town's pull board, and a server-wide announcement for Mythics
+	if gear.rarity == "Mythic" or gear.rarity == "Legendary" then
+		task.delay(ANNOUNCE_DELAY, function()
+			allServices.TownService:RecordPull(player, gear)
+			if gear.rarity == "Mythic" then
+				Remotes.Event("Announce"):FireAllClients(string.format("%s pulled the MYTHIC %s!", player.DisplayName, gear.name), "Mythic")
+			end
+		end)
+	end
 end
 
 function CrateService:Decide(player: Player, choice: string)
@@ -226,6 +238,7 @@ function CrateService:Refresh(player: Player)
 end
 
 function CrateService:Init(services)
+	allServices = services
 	DataService = services.DataService
 	EconomyService = services.EconomyService
 	GearService = services.GearService
@@ -236,8 +249,8 @@ function CrateService:Init(services)
 end
 
 function CrateService:Start()
-	Remotes.Event("CrateRoll").OnServerEvent:Connect(function(player)
-		CrateService:Roll(player)
+	Remotes.Event("CrateRoll").OnServerEvent:Connect(function(player, kind)
+		CrateService:Roll(player, kind == "Lucky")
 	end)
 	Remotes.Event("CrateDecision").OnServerEvent:Connect(function(player, choice)
 		if type(choice) == "string" and DECISIONS[choice] then

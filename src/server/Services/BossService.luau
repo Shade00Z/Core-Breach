@@ -163,14 +163,14 @@ local function buildBoss(arena: Arena): (Model, BasePart, Frame)
 	local def = arena.def
 	local model = Instance.new("Model")
 	model.Name = "Boss_" .. def.name
-	local dirt = Color3.fromRGB(105, 75, 50)
-	local root = Color3.fromRGB(80, 55, 35)
+	local dirt = def.colors.body
+	local root = def.colors.limb
 	local body = bossPart(model, "Body", Vector3.new(8, 8, 7), dirt, Enum.Material.Ground)
 	body.CFrame = CFrame.new(arena.position + Vector3.new(0, 4.5, 0))
 	bossPart(model, "Head", Vector3.new(5.5, 4, 5), dirt, Enum.Material.Ground, body, CFrame.new(0, 5.5, -1.5))
 	bossPart(model, "Jaw", Vector3.new(5, 1.4, 2), root, Enum.Material.Wood, body, CFrame.new(0, 3.6, -4))
 	for _, x in { -1.3, 1.3 } do
-		bossPart(model, "Eye", Vector3.new(1, 0.8, 0.3), Color3.fromRGB(255, 120, 30), Enum.Material.Neon, body, CFrame.new(x, 6.3, -4.1))
+		bossPart(model, "Eye", Vector3.new(1, 0.8, 0.3), def.colors.eye, Enum.Material.Neon, body, CFrame.new(x, 6.3, -4.1))
 	end
 	for _, x in { -5.6, 5.6 } do
 		bossPart(model, "Arm", Vector3.new(2.6, 8, 2.6), root, Enum.Material.Wood, body, CFrame.new(x, -0.5, -1) * CFrame.Angles(math.rad(-20), 0, math.rad(x > 0 and -10 or 10)))
@@ -366,17 +366,17 @@ local function reward(arena: Arena, player: Player)
 	local xp = HeroConfig.XPToNext(data.level) * rewards.xpLevels
 	services.CharacterService:GiveXP(player, xp)
 
-	local multiplier = data.coinMultiplier * LayerConfig.Get(data.layer).coinMultiplier
-	local coins = Config.CoinsForWave(math.max(1, data.wave - 1), multiplier) * rewards.coinWaves
+	local coins = services.EconomyService:WaveReward(player, rewards.coinWaves)
 	services.EconomyService:AddCoins(player, coins)
 
 	local coreValue = Config.CoinsForWave(math.max(1, data.wave - 1)) * LootConfig.Drops.CoreValue
 	services.LootService:Add(player, "boss_core", rewards.cores, coreValue * rewards.cores)
+	services.PowerService:GiveCrystals(player, rewards.crystals)
 
-	notify:FireClient(player, string.format("%s defeated! +%s XP, +$%s, +%d Boss Cores", def.name, Format.Number(math.floor(xp)), Format.Number(math.floor(coins)), rewards.cores))
+	notify:FireClient(player, string.format("%s defeated! +%s XP, +$%s, +%d Boss Cores, +%d Power Crystal%s", def.name, Format.Number(math.floor(xp)), Format.Number(math.floor(coins)), rewards.cores, rewards.crystals, if rewards.crystals == 1 then "" else "s"))
 	services.QuestService:Progress(player, "boss", 1, arena.layer)
 
-	-- First win on your own layer: the floor seal cracks open
+	-- First win on your own layer (since your last Re-Drill): the floor seal cracks open
 	local key = tostring(arena.layer)
 	local nextLayer = LayerConfig.Layers[arena.layer + 1]
 	if not data.bossesBeaten[key] then
@@ -386,7 +386,7 @@ local function reward(arena: Arena, player: Player)
 			task.delay(MOVE_DOWN_DELAY, function()
 				if player.Parent == Players and services.DataService:Get(player).layer == arena.layer then
 					services.HubService:MoveToLayer(player, nextLayer.id)
-					notify:FireClient(player, string.format("Welcome to the %s! New enemies, new ore and a new gear set. Coins x%.1f, luck +%.2f.", nextLayer.name, nextLayer.coinMultiplier, nextLayer.luckBonus))
+					notify:FireClient(player, string.format("Welcome to the %s! New enemies and new ore. Coins x%.1f, luck +%.2f.", nextLayer.name, nextLayer.coinMultiplier, nextLayer.luckBonus))
 				end
 			end)
 		end
@@ -506,7 +506,7 @@ local function stepArena(arena: Arena, dt: number)
 end
 
 ------------------------------------------------------------------------
--- Damage from heroes (CharacterService swings, AbilityService Fire Blast)
+-- Damage from heroes (CharacterService swings, AbilityService Core Powers)
 ------------------------------------------------------------------------
 
 local function damage(arena: Arena, player: Player, amount: number)
@@ -550,7 +550,7 @@ function BossService:Swing(player: Player, origin: Vector3, look: Vector3, amoun
 	end
 end
 
--- Where Fire Blast should aim if no lane enemy is in front of you: a
+-- Where an aimed ability should go if no lane enemy is in front of you: a
 -- fighting boss within range and the aim cone
 function BossService:AimPoint(origin: Vector3, look: Vector3, range: number, coneDegrees: number): Vector3?
 	local arena = activeNear(origin, range)
@@ -564,12 +564,34 @@ function BossService:AimPoint(origin: Vector3, look: Vector3, range: number, con
 	return nil
 end
 
--- An explosion at impact (Fire Blast splash)
-function BossService:Blast(player: Player, impact: Vector3, splash: number, amount: number)
+-- An explosion or area at impact (Core Power abilities)
+-- Returns true if it hit a boss.
+function BossService:Blast(player: Player, impact: Vector3, splash: number, amount: number): boolean
 	local arena = activeNear(impact, splash)
 	if arena then
 		damage(arena, player, amount)
+		return true
 	end
+	return false
+end
+
+-- A straight line from origin along look (Frost's Glacier Spike). look is flat.
+-- Returns true if it hit a boss.
+function BossService:Line(player: Player, origin: Vector3, look: Vector3, length: number, width: number, amount: number): boolean
+	local hit = false
+	for _, arena in arenas do
+		if arena.state == "Fighting" and math.abs(arena.position.Y - origin.Y) < ARENA_HEIGHT then
+			local radius = arena.def.radius
+			local offset = flat(arena.position - origin)
+			local along = offset:Dot(look)
+			local side = (offset - look * along).Magnitude
+			if along >= -radius and along <= length + radius and side <= width / 2 + radius then
+				damage(arena, player, amount)
+				hit = true
+			end
+		end
+	end
+	return hit
 end
 
 ------------------------------------------------------------------------

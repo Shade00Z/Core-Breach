@@ -16,6 +16,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local LootConfig = require(Shared:WaitForChild("LootConfig"))
 local LayerConfig = require(Shared:WaitForChild("LayerConfig"))
+local PowerData = require(Shared:WaitForChild("PowerData"))
 local HubBuilder = require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("HubBuilder"))
 
 local ROCK_COLOR = Color3.fromRGB(95, 85, 80)
@@ -60,7 +61,7 @@ local function buildVein(folder: Instance, layer: number, spot, index: number): 
 	rock.Material = Enum.Material.Rock
 	rock.Parent = model
 	-- Ore crystals sticking out of the rock
-	local glowing = spot.ore == "ember_ore" or spot.ore == "frost_geode" or spot.ore == "gold_ore" or spot.ore == "crystal_ore"
+	local glowing = spot.ore == "ember_ore" or spot.ore == "frost_geode" or spot.ore == "gold_ore" or spot.ore == "crystal_ore" or spot.ore == "magma_ore"
 	for i, offset in { Vector3.new(1.6, 2.6, 0.8), Vector3.new(-1.2, 2.3, -1.4), Vector3.new(0.2, 2.9, -0.6), Vector3.new(-1.8, 1.4, 1.7), Vector3.new(2.2, 1.2, -1.8) } do
 		local crystal = Instance.new("Part")
 		crystal.Name = "Ore"
@@ -135,6 +136,10 @@ local function breakVein(vein: Vein)
 			services.LootService:Add(player, vein.ore, count)
 			services.CharacterService:GiveXP(player, count * (item.value or 1) * LootConfig.MiningXP)
 			services.QuestService:Progress(player, "mine", count, vein.ore)
+			-- Deep ore can hold a Power Crystal
+			if vein.ore == "magma_ore" and rng:NextNumber() < PowerData.Crystals.MagmaVeinChance then
+				services.PowerService:GiveCrystals(player, 1)
+			end
 		end
 	end
 	vein.contributors = {}

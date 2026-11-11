@@ -45,13 +45,35 @@ export type PlayerData = {
 	totalRolls: number,
 	loot: { [string]: { count: number, value: number } }, -- your bag: item id -> stack (value = total forge value)
 	pickaxeTier: number, -- 1 Stone, 2 Iron, 3 Gold (LootConfig.Pickaxes)
-	pendingRoll: { gearId: string, price: number }?, -- rolled but not bought or skipped yet
+	pendingRoll: { gearId: string, price: number, lucky: boolean? }?, -- rolled but not bought or skipped yet (lucky = free Lucky Roll)
 	wave: number, -- the wave you're on (you return to it when you rejoin)
 
 	-- Layers and quests (week 6)
 	layer: number, -- the layer you play in (LayerConfig); beating its boss moves you down
 	bossesBeaten: { [string]: boolean }, -- layer -> beaten that layer's boss
 	quests: { [string]: { step: number, active: boolean, progress: number } }, -- layer -> quest line progress (QuestConfig)
+	deepestEver: number, -- deepest layer ever reached (kept through Re-Drills; sets the level cap)
+
+	-- Re-Drill and daily hooks (week 7)
+	reDrills: number,
+	upgrades: { [string]: number }, -- unused (the gold upgrade shop was removed; old saves may have levels here)
+
+	-- Core Powers (week 8, PowerData)
+	powers: {
+		crystals: number, -- unopened Power Crystals
+		equipped: string, -- power id, or "" for none
+		owned: { [string]: { xp: number } }, -- power id -> mastery XP
+		starterGiven: boolean, -- got the free crystal for reaching level 30
+	},
+	daily: {
+		day: number, -- the day (DailyConfig.Today) the daily quests below are for
+		quests: { { id: string, progress: number, done: boolean } },
+		allDone: boolean, -- got the bonus for finishing all 3 today
+		streakDay: number, -- login streak day you claimed last (0-7)
+		lastClaimDay: number, -- the day you last claimed a streak reward
+		luckyRolls: number, -- free Lucky Rolls waiting
+		lastLuckyDay: number, -- the day you last got your daily Lucky Roll
+	},
 
 	-- Hero
 	level: number,
@@ -88,6 +110,11 @@ local function newTemplate(): PlayerData
 		layer = 1,
 		bossesBeaten = {},
 		quests = {},
+		deepestEver = 1,
+		reDrills = 0,
+		upgrades = {},
+		powers = { crystals = 0, equipped = "", owned = {}, starterGiven = false },
+		daily = { day = -1, quests = {}, allDone = false, streakDay = 0, lastClaimDay = -1, luckyRolls = 0, lastLuckyDay = -1 },
 		level = 1,
 		xp = 0,
 		stats = { power = 0, command = 0, excavation = 0, fortune = 0, vitality = 0 },
@@ -140,6 +167,7 @@ local function loadPlayer(player: Player)
 
 	profile:AddUserId(player.UserId) -- GDPR: lets Roblox data-deletion requests find this save
 	profile:Reconcile() -- adds fields that are new since this save was made
+	profile.Data.deepestEver = math.max(profile.Data.deepestEver, profile.Data.layer) -- saves from before week 7
 
 	profile.OnSessionEnd:Connect(function()
 		profiles[player] = nil

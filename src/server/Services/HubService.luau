@@ -8,7 +8,11 @@
 --   * MoveToLayer: after beating a layer boss you drop into the next layer.
 --     Your lane is reskinned, your wave keeps going, and you arrive in the
 --     new layer's elevator plaza.
+--   * The elevator (in every plaza, and the headframe in Drill Town) takes
+--     you up to Drill Town or to any layer you've unlocked. It's only a
+--     visit: your lane keeps playing your deepest layer.
 -- Your gear wall keeps fighting while you're away from your lane.
+-- The client gets { here = n } stats: where you are (0 = Drill Town).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -19,6 +23,7 @@ local LayerConfig = require(Shared:WaitForChild("LayerConfig"))
 local HubBuilder = require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("HubBuilder"))
 
 local TELEPORT_COOLDOWN = 1
+local ELEVATOR_DISTANCE = 14
 
 local HubService = {}
 
@@ -26,6 +31,7 @@ local services
 local notify: RemoteEvent
 local hubs: { [number]: HubBuilder.Hub } = {}
 local lastTeleport: { [Player]: number } = {}
+local here: { [Player]: number } = {} -- where each player is: 0 = Drill Town, n = layer n's hub or lane
 
 -- One layer's hub (Layer 1 if that layer doesn't exist)
 function HubService:GetHub(layer: number?): HubBuilder.Hub
@@ -55,12 +61,25 @@ local function canTeleport(player: Player, force: boolean?): Model?
 	return character
 end
 
+local function setHere(player: Player, place: number)
+	if here[player] ~= place then
+		here[player] = place
+		services.EconomyService:PushStats(player, { here = place })
+	end
+end
+
+-- Where the player is: 0 = Drill Town, n = layer n
+function HubService:GetLocation(player: Player): number
+	return here[player] or self:GetLayer(player)
+end
+
 -- Into your own lane, just behind the barricade
 function HubService:ToLane(player: Player)
 	local lane = services.WaveService:GetLane(player)
 	local character = canTeleport(player)
 	if lane and character then
 		character:PivotTo(lane.origin * CFrame.new(0, 4, -1))
+		setHere(player, lane.layer)
 	end
 end
 
@@ -70,8 +89,50 @@ function HubService:ToHub(player: Player)
 	local character = canTeleport(player)
 	if lane and character then
 		local index = lane.model:GetAttribute("LaneIndex") or 1
-		character:PivotTo(self:GetHub(self:GetLayer(player)).spawnInFront(index))
+		local layer = self:GetLayer(player)
+		character:PivotTo(self:GetHub(layer).spawnInFront(index))
+		setHere(player, layer)
 	end
+end
+
+------------------------------------------------------------------------
+-- Elevator
+------------------------------------------------------------------------
+
+local function nearElevator(player: Player): boolean
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return false
+	end
+	local position = (root :: BasePart).Position
+	local calls = { services.TownService:GetTown().elevatorCall }
+	for _, hub in hubs do
+		table.insert(calls, hub.elevatorCall)
+	end
+	for _, call in calls do
+		if (call.Position - position).Magnitude <= ELEVATOR_DISTANCE then
+			return true
+		end
+	end
+	return false
+end
+
+-- Ride the elevator: 0 = Drill Town, n = layer n (must be unlocked)
+local function travel(player: Player, destination: unknown)
+	if type(destination) ~= "number" or destination % 1 ~= 0 then
+		return
+	end
+	if destination < 0 or destination > HubService:GetLayer(player) or not nearElevator(player) then
+		return
+	end
+	local character = canTeleport(player)
+	if not character then
+		return
+	end
+	local target = if destination == 0 then services.TownService:GetTown().plaza else HubService:GetHub(destination).plaza
+	character:PivotTo(target)
+	setHere(player, destination)
 end
 
 -- Door labels: your name on your door in your layer's hub, and only there
@@ -100,6 +161,7 @@ function HubService:MoveToLayer(player: Player, layer: number)
 	end
 	local data = services.DataService:Get(player)
 	data.layer = layer
+	data.deepestEver = math.max(data.deepestEver, layer)
 
 	local lane = services.WaveService:GetLane(player)
 	if lane then
@@ -115,6 +177,7 @@ function HubService:MoveToLayer(player: Player, layer: number)
 	if character then
 		character:PivotTo(self:GetHub(layer).plaza)
 	end
+	setHere(player, layer)
 end
 
 local function onLaneCreated(lane)
@@ -123,6 +186,7 @@ local function onLaneCreated(lane)
 	if index then
 		labelDoors(player, index, lane.layer)
 	end
+	setHere(player, lane.layer) -- you start in your lane
 	services.EconomyService:PushStats(player, { layer = lane.layer, layerName = LayerConfig.Get(lane.layer).name })
 	-- The exit door at the back of the lane
 	local exit = lane.model:FindFirstChild("ExitDoor")
@@ -182,8 +246,10 @@ function HubService:Start()
 	for _, lane in WaveService.Lanes do
 		onLaneCreated(lane)
 	end
+	Remotes.Event("ElevatorTravel").OnServerEvent:Connect(travel)
 	Players.PlayerRemoving:Connect(function(player)
 		lastTeleport[player] = nil
+		here[player] = nil
 	end)
 end
 

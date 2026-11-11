@@ -71,6 +71,10 @@ local LaneConfig = {
 		[4] = { name = "RockGolem", speed = 7, radius = 1.9, heroDamage = 16 },
 		[5] = { name = "CaveBat", speed = 13, radius = 1.3, heroDamage = 10 },
 		[6] = { name = "VaultWarden", speed = 5, radius = 4.5, heroDamage = 45, breaksBarricade = true }, -- wave boss
+		-- Layer 3: Magma Belt
+		[7] = { name = "MagmaBrute", speed = 6, radius = 2.2, heroDamage = 26 },
+		[8] = { name = "EmberImp", speed = 15, radius = 1.2, heroDamage = 16 },
+		[9] = { name = "LavaTitan", speed = 5, radius = 4.8, heroDamage = 60, breaksBarricade = true }, -- wave boss
 	},
 }
 

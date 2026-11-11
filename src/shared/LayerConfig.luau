@@ -2,7 +2,7 @@
 -- The layers of the world, top to bottom. Each layer is a floor built from
 -- the same template (Modules/HubBuilder): elevator plaza, NPC outpost, mine
 -- and forge, tunnel doors to the lanes, and a boss arena. Each layer has its
--- own colors, lane enemies, ore, gear and boss.
+-- own colors, lane enemies, ore and boss.
 --
 -- You play in one layer at a time (your "current layer"): your lane is
 -- reskinned to it and your lane's exit door leads to its hub. Beating a
@@ -24,7 +24,8 @@ export type Boss = {
 	roots: { every: number, windup: number, radius: number, damage: number, count: number },
 	leashSeconds: number, -- nobody in the arena this long and it resets
 	respawnSeconds: number, -- after it's beaten, before it can be challenged again
-	rewards: { xpLevels: number, coinWaves: number, cores: number },
+	rewards: { xpLevels: number, coinWaves: number, cores: number, crystals: number }, -- crystals = Power Crystals
+	colors: { body: Color3, limb: Color3, eye: Color3 }, -- the gray-box model's colors
 }
 
 export type Layer = {
@@ -100,7 +101,8 @@ LayerConfig.Layers = {
 			roots = { every = 9, windup = 1.4, radius = 6, damage = 25, count = 3 },
 			leashSeconds = 12,
 			respawnSeconds = 20,
-			rewards = { xpLevels = 1.5, coinWaves = 10, cores = 3 },
+			rewards = { xpLevels = 1.5, coinWaves = 10, cores = 3, crystals = 1 },
+			colors = { body = Color3.fromRGB(150, 108, 70), limb = Color3.fromRGB(110, 75, 45), eye = Color3.fromRGB(255, 120, 30) },
 		},
 	},
 	{
@@ -129,7 +131,66 @@ LayerConfig.Layers = {
 			Breach = Color3.fromRGB(80, 170, 255),
 		},
 		veins = veins("copper_ore", "iron_ore", "ember_ore", "crystal_ore", "crystal_ore"),
-		boss = nil, -- the Stone Vault boss arrives with Layer 3 (week 8)
+		boss = {
+			name = "Vault Colossus",
+			level = 70,
+			hp = 450000,
+			extraFighterHp = 0.75,
+			radius = 5.5,
+			speed = 8,
+			enragedSpeed = 12,
+			contactDamage = 30,
+			slam = { every = 4.5, windup = 1.1, radius = 14, damage = 70 },
+			roots = { every = 8, windup = 1.3, radius = 6, damage = 50, count = 4 },
+			leashSeconds = 12,
+			respawnSeconds = 25,
+			rewards = { xpLevels = 1.5, coinWaves = 12, cores = 4, crystals = 2 },
+			colors = { body = Color3.fromRGB(120, 125, 145), limb = Color3.fromRGB(85, 90, 110), eye = Color3.fromRGB(120, 210, 255) },
+		},
+	},
+	{
+		id = 3,
+		name = "Magma Belt",
+		hubCenter = Vector3.new(-220, 0, -510),
+		levelCap = 200,
+		coinMultiplier = 2.25,
+		luckBonus = 0.5,
+		enemies = { normal = 7, alt = 8, boss = 9 },
+		questGiver = "Smelter Brann",
+		trader = "Trader Pip",
+		hub = {
+			Floor = Color3.fromRGB(60, 45, 42),
+			Path = Color3.fromRGB(90, 70, 60),
+			Rock = Color3.fromRGB(45, 35, 35),
+			Plaza = Color3.fromRGB(80, 70, 68),
+			Arena = Color3.fromRGB(55, 40, 38),
+			Lamp = Color3.fromRGB(255, 150, 70),
+			Glow = Color3.fromRGB(255, 90, 20),
+		},
+		lane = {
+			Floor = Color3.fromRGB(40, 30, 28),
+			Wall = Color3.fromRGB(70, 50, 45),
+			Barricade = Color3.fromRGB(110, 85, 70),
+			Breach = Color3.fromRGB(255, 110, 20),
+		},
+		veins = veins("iron_ore", "ember_ore", "gold_ore", "magma_ore", "magma_ore"),
+		boss = {
+			name = "The Molten King",
+			level = 150,
+			hp = 950000000,
+			extraFighterHp = 0.75,
+			radius = 6,
+			speed = 9,
+			enragedSpeed = 14,
+			contactDamage = 60,
+			slam = { every = 4, windup = 1, radius = 15, damage = 140 },
+			roots = { every = 7, windup = 1.2, radius = 7, damage = 100, count = 5 },
+			leashSeconds = 12,
+			respawnSeconds = 30,
+			rewards = { xpLevels = 1.5, coinWaves = 15, cores = 6, crystals = 3 },
+			colors = { body = Color3.fromRGB(60, 40, 38), limb = Color3.fromRGB(255, 100, 20), eye = Color3.fromRGB(255, 230, 80) },
+		},
+		-- Layer 4 (Frost Rift) comes in an update after launch
 	},
 } :: { Layer }
 

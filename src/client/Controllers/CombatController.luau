@@ -4,14 +4,13 @@
 --     mobile, tap anywhere on the game world, or hold the big Swing button
 --     next to the jump button. Hits enemies in front of you and wall rock
 --     you've paid to dig.
---   * Fire Blast: Q, or the Fire Blast button on the right. Flies where you
---     face and bends toward the nearest enemy in front (aim assist), or a
---     layer boss in the arena.
---   Both also hit a layer boss (if your level is high enough).
+--   Swings also hit a layer boss (if your level is high enough).
+--   Core Power abilities (Q, F, R) are PowerController; it uses the
+--   helpers this controller shares (damage numbers, boss lookups).
 --   * A red flash and sound when enemies hurt you.
 --   * Rock chips and sounds while digging out wall slots.
 --
--- The server decides all damage (CharacterService, AbilityService). This
+-- The server decides all damage (CharacterService). This
 -- controller shows hits right away (flash and damage numbers) so it feels
 -- instant, and the kills arrive from the server a moment later.
 
@@ -32,7 +31,6 @@ local Format = require(Shared:WaitForChild("Format"))
 
 local player = Players.LocalPlayer
 
-local FIRE_COLOR = Color3.fromRGB(255, 120, 30)
 local ROCK_CHIP_COLOR = Color3.fromRGB(100, 85, 75)
 local HIDDEN = CFrame.new(0, -500, 0)
 local MAX_ENEMY_RADIUS = 5
@@ -54,20 +52,15 @@ local UIController
 local SoundController
 local EnemyRenderer
 local swingRemote: RemoteEvent
-local abilityRemote: RemoteEvent
 
 local fxFolder: Folder
 local holdingSwing = false
 local lastSwing = -math.huge
-local lastCast = -math.huge
 local swingStarted: number? = nil
 local swingJoint: Motor6D? = nil
 local baseC0: { [Motor6D]: CFrame } = {}
 
-local abilityButton: TextButton
 local swingButton: TextButton?
-local cooldownShade: Frame
-local cooldownLabel: TextLabel
 local hurtOverlay: Frame
 
 local damageNumbers: { { part: BasePart, label: TextLabel, gui: BillboardGui } } = {}
@@ -290,127 +283,6 @@ local function trySwing()
 end
 
 ------------------------------------------------------------------------
--- Fire Blast
-------------------------------------------------------------------------
-
--- Same aim assist the server uses: the nearest enemy within the cone
-local function pickTarget(origin: Vector3, look: Vector3): (number?, Vector3?)
-	local settings = HeroConfig.FireBlast
-	local minDot = math.cos(math.rad(settings.AimConeDegrees))
-	local bestId, bestPosition, bestDistance = nil, nil, math.huge
-	for _, enemy in EnemyRenderer:FindInRange(origin, settings.Range) do
-		local offset = Vector3.new(enemy.position.X - origin.X, 0, enemy.position.Z - origin.Z)
-		local distance = offset.Magnitude
-		if (distance < 1 or offset.Unit:Dot(look) >= minDot) and distance < bestDistance then
-			bestId, bestPosition, bestDistance = enemy.id, enemy.position, distance
-		end
-	end
-	return bestId, bestPosition
-end
-
-local function explode(position: Vector3)
-	local settings = HeroConfig.FireBlast
-	SoundController:PlayAt("FireExplode", position)
-
-	local blast = fxPart(Vector3.new(2, 2, 2), FIRE_COLOR, Enum.PartType.Ball)
-	blast.CFrame = CFrame.new(position)
-	local diameter = settings.SplashRadius * 2
-	local info = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	TweenService:Create(blast, info, { Size = Vector3.new(diameter, diameter, diameter), Transparency = 1 }):Play()
-	Debris:AddItem(blast, 0.4)
-
-	local _, damage = heroDamage()
-	for _, enemy in EnemyRenderer:FindInRange(position, settings.SplashRadius + MAX_ENEMY_RADIUS) do
-		local dx, dz = enemy.position.X - position.X, enemy.position.Z - position.Z
-		local reach = settings.SplashRadius + enemyRadius(enemy.kind)
-		if dx * dx + dz * dz <= reach * reach then
-			EnemyRenderer:Flash(enemy.id)
-			showDamage(enemy.position, damage, FIRE_COLOR)
-		end
-	end
-	for _, boss in bossesNear(position, settings.SplashRadius + 4) do
-		if canHurtBoss(boss.model) then
-			showDamage(boss.position + Vector3.new(0, 8, 0), damage, FIRE_COLOR)
-		end
-	end
-end
-
--- The fireball flies toward its target and follows it if it moves
--- (a lane enemy by id, or a layer boss model)
-local function launchFireball(start: Vector3, targetId: number?, aimPoint: Vector3, boss: Model?)
-	local settings = HeroConfig.FireBlast
-	local ball = fxPart(Vector3.new(2, 2, 2), FIRE_COLOR, Enum.PartType.Ball)
-	ball.CFrame = CFrame.new(start)
-	local light = Instance.new("PointLight")
-	light.Color = FIRE_COLOR
-	light.Range = 14
-	light.Brightness = 3
-	light.Parent = ball
-
-	local position = start
-	local target = aimPoint
-	local flat = Vector3.new(aimPoint.X - start.X, 0, aimPoint.Z - start.Z).Magnitude
-	local maxTime = flat / settings.Speed + 0.3
-	local born = os.clock()
-	local connection
-	connection = RunService.RenderStepped:Connect(function(dt)
-		if targetId then
-			local current = EnemyRenderer:GetPosition(targetId)
-			if current then
-				target = current
-			end
-		elseif boss and boss.PrimaryPart then
-			target = boss.PrimaryPart.Position - Vector3.new(0, 4.5, 0)
-		end
-		local toTarget = target - position
-		local step = settings.Speed * dt
-		if toTarget.Magnitude <= step + 0.5 or os.clock() - born > maxTime then
-			connection:Disconnect()
-			ball:Destroy()
-			explode(Vector3.new(target.X, target.Y, target.Z))
-			return
-		end
-		position += toTarget.Unit * step
-		ball.CFrame = CFrame.new(position)
-	end)
-end
-
-local function tryFireBlast()
-	local root = getRoot()
-	local now = os.clock()
-	if not root or now - lastCast < HeroConfig.FireBlast.Cooldown then
-		return
-	end
-	lastCast = now
-
-	local look = flatLook(root)
-	local targetId, targetPosition = pickTarget(root.Position, look)
-	-- No lane enemy in front: a layer boss in the arena, if one's in the cone
-	local boss: Model? = nil
-	if not targetId then
-		local minDot = math.cos(math.rad(HeroConfig.FireBlast.AimConeDegrees))
-		for _, candidate in bossesNear(root.Position, HeroConfig.FireBlast.Range) do
-			if candidate.offset.Magnitude < 1 or candidate.offset.Unit:Dot(look) >= minDot then
-				boss, targetPosition = candidate.model, candidate.position
-				break
-			end
-		end
-	end
-	local start = root.Position + look * 2 + Vector3.new(0, 1, 0)
-	local aimPoint = targetPosition or (root.Position + look * HeroConfig.FireBlast.Range)
-	abilityRemote:FireServer("FireBlast", targetId or 0)
-	SoundController:Play("FireCast")
-	launchFireball(start, targetId, aimPoint, boss)
-end
-
-local function updateCooldown()
-	local cooldown = HeroConfig.FireBlast.Cooldown
-	local remaining = math.max(0, cooldown - (os.clock() - lastCast))
-	cooldownShade.Size = UDim2.new(1, 0, remaining / cooldown, 0)
-	cooldownLabel.Text = if remaining > 0 then tostring(math.ceil(remaining)) else ""
-end
-
-------------------------------------------------------------------------
 -- Getting hurt
 ------------------------------------------------------------------------
 
@@ -517,54 +389,11 @@ end
 local function buildUi()
 	local gui = UIController:GetGui()
 
-	-- Fire Blast button, right side (works with a mouse and with thumbs)
-	abilityButton = Instance.new("TextButton")
-	abilityButton.Name = "FireBlastButton"
-	abilityButton.AnchorPoint = Vector2.new(1, 0.5)
-	abilityButton.Position = UDim2.new(1, -16, 0.5, 0)
-	abilityButton.Size = UDim2.new(0, 86, 0, 86)
-	abilityButton.BackgroundColor3 = Color3.fromRGB(200, 80, 20)
-	abilityButton.Font = Enum.Font.GothamBold
-	abilityButton.TextColor3 = Color3.new(1, 1, 1)
-	abilityButton.TextSize = 15
-	abilityButton.TextWrapped = true
-	abilityButton.Text = if UserInputService.KeyboardEnabled then "Fire Blast\n[Q]" else "Fire Blast"
-	abilityButton.ClipsDescendants = true
-	abilityButton.Parent = gui
-	Instance.new("UICorner", abilityButton).CornerRadius = UDim.new(0, 43)
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = Color3.fromRGB(255, 190, 90)
-	stroke.Thickness = 2
-	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	stroke.Parent = abilityButton
-
-	cooldownShade = Instance.new("Frame")
-	cooldownShade.AnchorPoint = Vector2.new(0, 1)
-	cooldownShade.Position = UDim2.new(0, 0, 1, 0)
-	cooldownShade.Size = UDim2.new(1, 0, 0, 0)
-	cooldownShade.BackgroundColor3 = Color3.new(0, 0, 0)
-	cooldownShade.BackgroundTransparency = 0.45
-	cooldownShade.BorderSizePixel = 0
-	cooldownShade.Parent = abilityButton
-
-	cooldownLabel = Instance.new("TextLabel")
-	cooldownLabel.BackgroundTransparency = 1
-	cooldownLabel.Size = UDim2.new(1, 0, 1, 0)
-	cooldownLabel.Font = Enum.Font.GothamBlack
-	cooldownLabel.TextSize = 30
-	cooldownLabel.TextColor3 = Color3.new(1, 1, 1)
-	cooldownLabel.TextStrokeTransparency = 0.3
-	cooldownLabel.Text = ""
-	cooldownLabel.ZIndex = 3
-	cooldownLabel.Parent = abilityButton
-
-	abilityButton.Activated:Connect(tryFireBlast)
-
 	-- How to swing (keyboard and mouse only; phones get a Swing button)
 	if UserInputService.KeyboardEnabled then
 		local hint = Instance.new("TextLabel")
 		hint.AnchorPoint = Vector2.new(1, 0)
-		hint.Position = UDim2.new(1, -8, 0.5, 50)
+		hint.Position = UDim2.new(1, -8, 0.5, 86) -- under the Core Power buttons
 		hint.Size = UDim2.new(0, 104, 0, 18)
 		hint.BackgroundTransparency = 1
 		hint.Font = Enum.Font.GothamBold
@@ -673,7 +502,6 @@ end
 
 function CombatController:Start()
 	swingRemote = Remotes.Event("SwingWeapon")
-	abilityRemote = Remotes.Event("UseAbility")
 
 	-- Swing: left mouse, gamepad R2, or a touch button. Holding keeps swinging.
 	ContextActionService:BindAction("HeroSwing", function(_, state)
@@ -704,19 +532,11 @@ function CombatController:Start()
 		end)
 	end
 
-	ContextActionService:BindAction("FireBlast", function(_, state)
-		if state == Enum.UserInputState.Begin then
-			tryFireBlast()
-		end
-		return Enum.ContextActionResult.Pass
-	end, false, Enum.KeyCode.Q, Enum.KeyCode.ButtonX)
-
 	RunService.RenderStepped:Connect(function()
 		if holdingSwing then
 			trySwing()
 		end
 		animateSwing()
-		updateCooldown()
 	end)
 
 	player.CharacterAdded:Connect(onCharacter)
@@ -724,6 +544,25 @@ function CombatController:Start()
 		task.spawn(onCharacter, player.Character)
 	end
 	task.spawn(watchLanes)
+end
+
+------------------------------------------------------------------------
+-- Shared with PowerController (Core Power abilities)
+------------------------------------------------------------------------
+
+CombatController.GetRoot = getRoot
+CombatController.FlatLook = flatLook
+CombatController.EnemyRadius = enemyRadius
+CombatController.FxPart = fxPart
+CombatController.BossesNear = bossesNear
+CombatController.CanHurtBoss = canHurtBoss
+CombatController.ShowDamage = showDamage
+CombatController.MaxEnemyRadius = MAX_ENEMY_RADIUS
+
+-- Your current swing damage, as the server last sent it
+function CombatController.SwingDamage(): number
+	local swing = heroDamage()
+	return swing
 end
 
 return CombatController

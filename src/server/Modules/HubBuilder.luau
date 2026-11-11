@@ -11,7 +11,8 @@
 -- stands in the mine next to the ore veins (MiningService places the veins).
 -- The quest giver at the outpost has a "Talk" prompt (QuestService); the
 -- boss arena has a "Challenge" prompt on its seal (BossService).
--- The elevator is a placeholder until week 7.
+-- The elevator in the plaza goes up to Drill Town and to your other
+-- unlocked layers (HubService).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LayerConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("LayerConfig"))
@@ -42,6 +43,7 @@ export type Hub = {
 	forge: BasePart,
 	veinFolder: Folder,
 	questGiver: Model, -- the NPC with this layer's quests
+	elevatorCall: BasePart, -- the elevator's call panel (prompt)
 	arenaCenter: Vector3, -- on the floor
 	arenaSeal: BasePart, -- the disc in the middle of the arena (boss prompt)
 	arenaSign: TextLabel, -- the sign over the arena gate
@@ -168,7 +170,11 @@ function HubBuilder.Build(parent: Instance, layerId: number): Hub
 	ring.Shape = Enum.PartType.Cylinder
 	local shaft = part(model, "Elevator", Vector3.new(14, 26, 14), at(0, FLOOR_Y + 13, 0), COMMON.Metal, Enum.Material.DiamondPlate)
 	sign(shaft, "Layer " .. layer.id .. ": " .. layer.name, UDim2.fromScale(20, 3), Vector3.new(0, 18, 0), palette.Lamp)
-	sign(shaft, "Elevator (opens in week 7)", UDim2.fromScale(14, 1.6), Vector3.new(0, 15.6, 0), Color3.fromRGB(220, 220, 220))
+	-- The call panel on the elevator's south side (ElevatorController opens the panel)
+	local call = part(model, "ElevatorCall", Vector3.new(4, 5, 1), at(0, FLOOR_Y + 2.5, -7.5), COMMON.Hazard, Enum.Material.Metal)
+	sign(call, "Elevator", UDim2.fromScale(8, 1.6), Vector3.new(0, 4, 0), Color3.fromRGB(255, 230, 160))
+	local ride = prompt(call, "ElevatorPrompt", "Ride elevator", "Elevator", 10)
+	ride:SetAttribute("Layer", layer.id)
 	for _, p in { { 24, 18 }, { -24, 18 }, { 24, -18 }, { -24, -18 } } do
 		lamp(model, p[1], p[2], true)
 	end
@@ -325,6 +331,7 @@ function HubBuilder.Build(parent: Instance, layerId: number): Hub
 		forge = anvil,
 		veinFolder = veinFolder,
 		questGiver = giver,
+		elevatorCall = call,
 		arenaCenter = Vector3.new(C.X + A.X, C.Y + FLOOR_Y, C.Z + A.Z),
 		arenaSeal = seal,
 		arenaSign = arenaSign,

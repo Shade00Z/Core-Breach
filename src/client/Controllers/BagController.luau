@@ -76,7 +76,7 @@ function BagController:Init(controllers)
 	panel = Instance.new("Frame")
 	panel.Name = "BagPanel"
 	panel.AnchorPoint = Vector2.new(0, 0.5)
-	panel.Position = UDim2.new(0, 112, 0.5, 0)
+	panel.Position = UDim2.new(0, 210, 0.5, 0)
 	panel.Size = UDim2.new(0, 320, 0, 0)
 	panel.AutomaticSize = Enum.AutomaticSize.Y
 	panel.BackgroundColor3 = Color3.fromRGB(22, 20, 28)

@@ -55,6 +55,7 @@ local CrateController = {}
 local UIController
 local SoundController
 local openButton: TextButton
+local luckyButton: TextButton
 local myCrate: BasePart?
 local decisionRemote: RemoteEvent
 
@@ -69,7 +70,7 @@ local buyButton: TextButton
 local skipButton: TextButton
 
 type Ownership = { level: number, copies: number, needed: number, maxed: boolean }
-local current: { gearId: string, price: number, owned: Ownership?, revealed: boolean }? = nil
+local current: { gearId: string, price: number, owned: Ownership?, lucky: boolean?, revealed: boolean }? = nil
 local revealToken = 0
 
 -- Floating preview above the crate
@@ -134,6 +135,9 @@ local function refreshButtons()
 		if owned and owned.maxed then
 			buyButton.Text = "Max level"
 			setButtonEnabled(buyButton, false)
+		elseif current.price <= 0 then
+			buyButton.Text = if owned then "Level up (free)" else "Take it"
+			setButtonEnabled(buyButton, true)
 		elseif coins >= current.price then
 			buyButton.Text = if owned then "Level up" else "Buy"
 			setButtonEnabled(buyButton, true)
@@ -311,7 +315,7 @@ local function showGear(gearId: string, price: number)
 	local splash = if gear.splash > 0 then ("  ·  Splash " .. gear.splash) else ""
 	statsLabel.Text = string.format("%s  ·  %s DPS%s", gear.kind, Format.Number(GearData.DPS(gear, if owned then owned.level else 1)), splash)
 	ownedLabel.Text, ownedLabel.TextColor3 = ownedText(gear, owned)
-	priceLabel.Text = "$ " .. Format.Number(price)
+	priceLabel.Text = if price <= 0 then "FREE" elseif current and current.lucky then "$ " .. Format.Number(price) .. "  (Lucky Roll: half price)" else "$ " .. Format.Number(price)
 	buyButton.Visible, skipButton.Visible = true, true
 	refreshButtons()
 	if current then
@@ -420,6 +424,7 @@ local function onResult(result)
 		gearId = result.gearId,
 		price = result.price,
 		owned = if type(result.owned) == "table" then result.owned else nil,
+		lucky = result.lucky == true,
 		revealed = false,
 	}
 	revealToken += 1
@@ -496,6 +501,15 @@ function CrateController:Init(controllers)
 		Remotes.Event("CrateRoll"):FireServer()
 	end)
 
+	-- Lucky Roll button (daily hooks): double luck, and the gear is free
+	luckyButton = button(gui, "Lucky Roll", Color3.fromRGB(200, 60, 140), UDim2.new(0, 220, 0, 46), UDim2.new(0.5, -110, 1, -130))
+	luckyButton.Name = "LuckyRollButton"
+	luckyButton.TextSize = 20
+	luckyButton.Visible = false
+	luckyButton.Activated:Connect(function()
+		Remotes.Event("CrateRoll"):FireServer("Lucky")
+	end)
+
 	-- Reveal panel, bottom center
 	panel = Instance.new("Frame")
 	panel.Name = "CratePanel"
@@ -560,6 +574,10 @@ local function updateOpenButton()
 	local distance = crateDistance()
 	local near = distance ~= nil and distance <= CrateConfig.MaxRollDistance - 1
 	openButton.Visible = near and current == nil
+	local daily = UIController.Stats.daily
+	local lucky = if type(daily) == "table" then daily.luckyRolls or 0 else 0
+	luckyButton.Visible = openButton.Visible and lucky > 0
+	luckyButton.Text = string.format("Lucky Roll (%d)", lucky)
 end
 
 function CrateController:Start()
