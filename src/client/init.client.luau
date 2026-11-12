@@ -12,6 +12,7 @@ local ORDER = {
 	"CombatController",
 	"PowerController",
 	"CrystalController",
+	"OddsController",
 	"CrateController",
 	"GearController",
 	"StatsController",
@@ -24,9 +25,12 @@ local ORDER = {
 	"DailyController",
 	"IndexController",
 	"ReDrillController",
+	"StoreController",
 	"RebirthController",
 	"OfflineController",
+	"SettingsController",
 	"DevController",
+	"MobileController",
 }
 
 local loaded = {}

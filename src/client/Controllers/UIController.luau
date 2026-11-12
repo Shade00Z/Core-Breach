@@ -17,6 +17,7 @@ local LaneSnapshot = require(Shared:WaitForChild("LaneSnapshot"))
 local Config = require(Shared:WaitForChild("ProgressionConfig"))
 local Format = require(Shared:WaitForChild("Format"))
 local Signal = require(Shared:WaitForChild("Signal"))
+local ClientSettings = require(script.Parent.Parent:WaitForChild("ClientSettings"))
 
 local STATE_TEXT = {
 	[LaneSnapshot.States.Intermission] = "Next wave incoming...",
@@ -25,6 +26,7 @@ local STATE_TEXT = {
 }
 local TOAST_TIME = 2.5
 local MAX_TOASTS = 3
+local MAX_TOASTS_COMPACT = 2 -- phones
 
 local UIController = {}
 local SoundController
@@ -59,6 +61,9 @@ local xpText: TextLabel
 local debugLabel: TextLabel
 local toastList: Frame
 local toastCount = 0
+local topPanel: Frame
+local topScale: UIScale
+local toastLayout: UIListLayout
 local announceBanner: TextLabel
 local announceToken = 0
 local hpFill: Frame
@@ -107,7 +112,12 @@ local function refreshStats()
 	coinLabel.Text = "$ " .. Format.Number(coins)
 	local dpsText = Format.Number(stats.dps or 0) .. " DPS"
 	if (stats.rebirths or 0) > 0 then
-		dpsText ..= string.format("  ·  Coins x%.2f  ·  Record: wave %d", stats.coinMultiplier or 1, stats.bestWaveEver or 0)
+		local boost = if type(stats.store) == "table" then stats.store.coinBoost or 1 else 1
+		dpsText ..= string.format("  ·  Coins x%.2f%s", stats.coinMultiplier or 1, if boost > 1 then string.format(" (x%d pass)", boost) else "")
+		-- Phones: keep this line short so it doesn't run under the wave panel
+		if not ClientSettings.Get("compact") then
+			dpsText ..= string.format("  ·  Record: wave %d", stats.bestWaveEver or 0)
+		end
 	end
 	dpsLabel.Text = dpsText
 
@@ -129,7 +139,18 @@ end
 -- Show a short message at the bottom of the screen.
 function UIController:Toast(text: string)
 	toastCount += 1
+	local compact = ClientSettings.Get("compact")
 	local label = makeLabel(toastList, UDim2.new(1, 0, 0, 26), UDim2.new(), 18)
+	if compact then
+		-- Phones: small, left-aligned lines down the left side, off the lane
+		label.Size = UDim2.new(0, 0, 0, 20)
+		label.AutomaticSize = Enum.AutomaticSize.X
+		label.TextSize = 13
+		local pad = Instance.new("UIPadding")
+		pad.PaddingLeft = UDim.new(0, 8)
+		pad.PaddingRight = UDim.new(0, 8)
+		pad.Parent = label
+	end
 	label.LayoutOrder = toastCount
 	label.Text = text
 	label.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
@@ -145,7 +166,7 @@ function UIController:Toast(text: string)
 	table.sort(toasts, function(a, b)
 		return a.LayoutOrder < b.LayoutOrder
 	end)
-	while #toasts > MAX_TOASTS do
+	while #toasts > (if compact then MAX_TOASTS_COMPACT else MAX_TOASTS) do
 		table.remove(toasts, 1):Destroy()
 	end
 
@@ -157,6 +178,36 @@ function UIController:Toast(text: string)
 			label:Destroy()
 		end
 	end)
+end
+
+-- Phone layout (MobileController switches "compact" on): the HUD may use the
+-- strip beside Roblox's own buttons, the wave panel and boss bar shrink, and
+-- messages move from the middle of the screen to the left side.
+local function applyCompact()
+	local compact = ClientSettings.Get("compact") == true
+	gui.ScreenInsets = if compact then Enum.ScreenInsets.DeviceSafeInsets else Enum.ScreenInsets.CoreUISafeInsets
+	topScale.Scale = if compact then 0.8 else 1
+	topPanel.Position = UDim2.new(0.5, 0, 0, if compact then 4 else 8)
+	bossBar.Size = if compact then UDim2.new(0, 280, 0, 16) else UDim2.new(0, 420, 0, 22)
+	bossBar.Position = UDim2.new(0.5, 0, 0, if compact then 78 else 100)
+	if compact then
+		toastList.AnchorPoint = Vector2.new(0, 0)
+		toastList.Position = UDim2.new(0, 12, 0, 196) -- under the Menu button
+		toastList.Size = UDim2.new(0, 300, 0, 60)
+		toastLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+		toastLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	else
+		toastList.AnchorPoint = Vector2.new(0.5, 1)
+		toastList.Position = UDim2.new(0.5, 0, 1, -230)
+		toastList.Size = UDim2.new(0, 420, 0, 100)
+		toastLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+		toastLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	end
+	for _, child in toastList:GetChildren() do
+		if child:IsA("TextLabel") then
+			child:Destroy() -- sized for the other layout
+		end
+	end
 end
 
 local function watchDebugFlag()
@@ -184,6 +235,9 @@ function UIController:Init(controllers)
 	gui = Instance.new("ScreenGui")
 	gui.Name = "HUD"
 	gui.ResetOnSpawn = false
+	-- Children draw over their parents, and ZIndex orders things side by
+	-- side: panels (ZIndex 10+) cover the HUD buttons underneath them
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 	-- Top center: wave, barricade, status, luck
 	local panel = Instance.new("Frame")
@@ -192,6 +246,9 @@ function UIController:Init(controllers)
 	panel.Size = UDim2.new(0, 280, 0, 86)
 	panel.BackgroundTransparency = 1
 	panel.Parent = gui
+	topPanel = panel
+	topScale = Instance.new("UIScale")
+	topScale.Parent = panel
 
 	waveLabel = makeLabel(panel, UDim2.new(1, 0, 0, 28), UDim2.new(0, 0, 0, 0), 26)
 	waveLabel.Text = "Wave -"
@@ -281,8 +338,10 @@ function UIController:Init(controllers)
 	toastList.Position = UDim2.new(0.5, 0, 1, -230)
 	toastList.Size = UDim2.new(0, 420, 0, 100)
 	toastList.BackgroundTransparency = 1
+	toastList.ZIndex = 30
 	toastList.Parent = gui
 	local layout = Instance.new("UIListLayout")
+	toastLayout = layout
 	layout.VerticalAlignment = Enum.VerticalAlignment.Bottom
 	layout.Padding = UDim.new(0, 4)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
@@ -333,6 +392,11 @@ function UIController:GetGui(): ScreenGui
 end
 
 function UIController:Start()
+	ClientSettings.Changed:Connect(function(key)
+		if key == "compact" then
+			applyCompact()
+		end
+	end)
 	Remotes.Event("EnemySnapshot").OnClientEvent:Connect(function(buf: buffer)
 		local header = LaneSnapshot.ReadHeader(buf)
 		local isBoss = header.wave % Config.Wave.BossEvery == 0

@@ -1,8 +1,8 @@
 -- CombatController
 -- Your hero's controls and the feel of fighting:
 --   * Swing the pickaxe-hammer: left click (hold to keep swinging). On
---     mobile, tap anywhere on the game world, or hold the big Swing button
---     next to the jump button. Hits enemies in front of you and wall rock
+--     mobile, tap or hold the big Swing button next to the jump button
+--     (tapping the screen doesn't swing, so you can look around freely). Hits enemies in front of you and wall rock
 --     you've paid to dig.
 --   Swings also hit a layer boss (if your level is high enough).
 --   Core Power abilities (Q, F, R) are PowerController; it uses the
@@ -25,6 +25,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local ClientSettings = require(script.Parent.Parent:WaitForChild("ClientSettings"))
 local HeroConfig = require(Shared:WaitForChild("HeroConfig"))
 local LaneConfig = require(Shared:WaitForChild("LaneConfig"))
 local Format = require(Shared:WaitForChild("Format"))
@@ -169,6 +170,9 @@ local function buildDamageNumbers()
 end
 
 local function showDamage(position: Vector3, amount: number, color: Color3)
+	if not ClientSettings.Get("effects") then
+		return
+	end
 	local entry = damageNumbers[nextDamageNumber]
 	nextDamageNumber = nextDamageNumber % #damageNumbers + 1
 	local start = position + Vector3.new(math.random() * 1.6 - 0.8, 2, math.random() * 1.6 - 0.8)
@@ -514,12 +518,7 @@ function CombatController:Start()
 		return Enum.ContextActionResult.Pass
 	end, false, Enum.UserInputType.MouseButton1, Enum.KeyCode.ButtonR2)
 
-	-- Mobile: tap the game world to swing, or hold the big Swing button
-	UserInputService.TouchTapInWorld:Connect(function(_, processedByUI)
-		if not processedByUI then
-			trySwing()
-		end
-	end)
+	-- Mobile: tap or hold the big Swing button (taps on the world do nothing)
 	if UserInputService.TouchEnabled then
 		buildSwingButton()
 		-- Re-place it when the jump button appears or the screen rotates

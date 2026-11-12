@@ -14,6 +14,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local FXPacket = require(Shared:WaitForChild("FXPacket"))
+local ClientSettings = require(script.Parent.Parent:WaitForChild("ClientSettings"))
 
 local WOOD = Color3.fromRGB(150, 110, 70)
 local DAMAGED = Color3.fromRGB(170, 40, 30)
@@ -28,6 +29,7 @@ local ARC_HEIGHT = 9
 local COLLECT_TIME = 0.25 -- coin flying to you when picked up
 local COIN_HEIGHT = 1.05 -- resting height (floor top + coin radius)
 local MAX_TRACERS = 80
+local MAX_TRACERS_LOW = 25 -- low graphics setting
 local MAX_MERGE_ARCS = 30
 local ENEMY_AIM_HEIGHT = 1.5
 
@@ -158,15 +160,24 @@ local function onShot(shot: FXPacket.Shot, now: number)
 	gear.CFrame = CFrame.lookAt(origin, Vector3.new(target.X, origin.Y, target.Z))
 	local muzzle = origin + gear.CFrame.LookVector * (gear.Size.Z / 2)
 
+	-- Settings: "Combat effects" off draws nothing more; low graphics skips
+	-- the flash and allows fewer tracers
+	if not ClientSettings.Get("effects") then
+		return
+	end
+	local low = ClientSettings.Get("lowGraphics")
+
 	-- Muzzle flash
-	local flash = take("flash")
-	flash.Color = gear.Color
-	flash.Size = Vector3.new(0.9, 0.9, 0.9)
-	flash.CFrame = CFrame.new(muzzle)
-	table.insert(activeEffects, { part = flash, expires = now + FLASH_TIME, kind = "flash", born = now })
+	if not low then
+		local flash = take("flash")
+		flash.Color = gear.Color
+		flash.Size = Vector3.new(0.9, 0.9, 0.9)
+		flash.CFrame = CFrame.new(muzzle)
+		table.insert(activeEffects, { part = flash, expires = now + FLASH_TIME, kind = "flash", born = now })
+	end
 
 	-- Tracer
-	if tracerCount < MAX_TRACERS then
+	if tracerCount < (if low then MAX_TRACERS_LOW else MAX_TRACERS) then
 		local length = (target - muzzle).Magnitude
 		if length > 0.5 then
 			local tracer = take("tracer")
@@ -184,12 +195,14 @@ local function onKill(kill: FXPacket.Kill, now: number)
 	EnemyRenderer:Remove(kill.enemyId)
 
 	-- Pop
-	local pop = take("pop")
-	pop.Color = Color3.fromRGB(255, 240, 200)
-	pop.Size = Vector3.new(1, 1, 1)
-	pop.Transparency = 0
-	pop.CFrame = CFrame.new(position)
-	table.insert(activeEffects, { part = pop, expires = now + POP_TIME, kind = "pop", born = now })
+	if ClientSettings.Get("effects") then
+		local pop = take("pop")
+		pop.Color = Color3.fromRGB(255, 240, 200)
+		pop.Size = Vector3.new(1, 1, 1)
+		pop.Transparency = 0
+		pop.CFrame = CFrame.new(position)
+		table.insert(activeEffects, { part = pop, expires = now + POP_TIME, kind = "pop", born = now })
+	end
 
 	if kill.dropId == 0 then
 		return

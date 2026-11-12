@@ -99,6 +99,8 @@ function UIKit.Panel(gui: Instance, name: string, title: string, width: number, 
 	frame.BackgroundColor3 = UIKit.Colors.Panel
 	frame.BackgroundTransparency = 0.04
 	frame.Visible = false
+	frame.ZIndex = 10 -- over the HUD buttons
+	frame.Active = true -- taps don't fall through to buttons underneath
 	frame.Parent = gui
 	Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
 	local limit = Instance.new("UISizeConstraint")

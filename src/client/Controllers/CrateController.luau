@@ -5,11 +5,15 @@
 -- the prompt on mobile). The server sends back what you rolled.
 -- Walk away with a reveal still open and the panel slides off screen; the
 -- gear floats above your crate instead. Walk back and the panel slides back in.
+-- Store extras (StoreService): a Price Skip button under Buy / Skip (Robux or
+-- a token instead of coins), Fast Rolls (no suspense), and a small line when
+-- Auto-Skip throws a roll away. The "Odds" button opens OddsController.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 local Debris = game:GetService("Debris")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -17,6 +21,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local GearData = require(Shared:WaitForChild("GearData"))
 local CrateConfig = require(Shared:WaitForChild("CrateConfig"))
 local Format = require(Shared:WaitForChild("Format"))
+local ClientSettings = require(script.Parent.Parent:WaitForChild("ClientSettings"))
 
 -- How long the "rolling" suspense lasts, by rarity (rarer = longer). The
 -- color cycle slows down toward the end like a slot machine, and the crate
@@ -44,7 +49,7 @@ local HIDE_DISTANCE = CrateConfig.MaxRollDistance + 2 -- further than this: pane
 local SHOW_DISTANCE = CrateConfig.MaxRollDistance - 1 -- closer than this: panel comes back
 local TRANSITION_SPEED = 8 -- higher = snappier slide
 local PANEL_SHOWN = UDim2.new(0.5, 0, 1, -16)
-local PANEL_HIDDEN = UDim2.new(0.5, 0, 1, 260) -- just below the bottom of the screen
+local PANEL_HIDDEN = UDim2.new(0.5, 0, 1, 300) -- just below the bottom of the screen
 local PREVIEW_HEIGHT = 2.6 -- how far above the crate the gear floats
 local PREVIEW_SCALE = 1.8 -- bigger than on the wall, so it reads from a distance
 local ROLLING_SIZE = Vector3.new(1.6, 1.6, 1.6)
@@ -68,6 +73,11 @@ local ownedLabel: TextLabel
 local priceLabel: TextLabel
 local buyButton: TextButton
 local skipButton: TextButton
+local priceSkipButton: TextButton
+local oddsButton: TextButton
+local autoLabel: TextLabel
+local autoToken = 0
+local OddsController
 
 type Ownership = { level: number, copies: number, needed: number, maxed: boolean }
 local current: { gearId: string, price: number, owned: Ownership?, lucky: boolean?, revealed: boolean }? = nil
@@ -129,6 +139,21 @@ end
 
 local function refreshButtons()
 	local stats = UIController.Stats
+	-- Price Skip: Robux (or a token you already paid for) instead of coins
+	local store = stats.store
+	local canSkipPrice = current ~= nil
+		and current.revealed
+		and current.price > 0
+		and not (current.owned and current.owned.maxed)
+		and type(store) == "table"
+		and not store.restricted
+		and ((store.tokens or 0) > 0 or store.skip.forSale or store.testing)
+	priceSkipButton.Visible = canSkipPrice == true
+	if canSkipPrice then
+		priceSkipButton.Text = if (store.tokens or 0) > 0
+			then string.format("Use a Price Skip token (%d left)", store.tokens)
+			else string.format("Price Skip: get it for R$ %d instead", store.skip.robux)
+	end
 	if current then
 		local coins = stats.coins or 0
 		local owned = current.owned
@@ -301,11 +326,40 @@ end
 
 ------------------------------------------------------------------------
 
+-- The panel shrinks on short screens (phones) so it doesn't cover the lane
+local function fitScale(): number
+	local camera = workspace.CurrentCamera
+	if not camera then
+		return 1
+	end
+	local viewport = camera.ViewportSize
+	return math.min(1, viewport.Y * 0.6 / panel.Size.Y.Offset, (viewport.X - 16) / panel.Size.X.Offset)
+end
+
+-- Phones get smaller crate buttons (and no "[E]" without a keyboard)
+local function layoutButtons()
+	local compact = ClientSettings.Get("compact") == true
+	openButton.Text = if UserInputService.KeyboardEnabled then "Open Crate  [E]" else "Open Crate"
+	if compact then
+		openButton.Size, openButton.Position, openButton.TextSize = UDim2.new(0, 150, 0, 42), UDim2.new(0.5, -75, 1, -52), 17
+		luckyButton.Size, luckyButton.Position, luckyButton.TextSize = UDim2.new(0, 150, 0, 32), UDim2.new(0.5, -75, 1, -90), 15
+		oddsButton.Size, oddsButton.Position, oddsButton.TextSize = UDim2.new(0, 54, 0, 42), UDim2.new(0.5, -135, 1, -52), 14
+		autoLabel.Position, autoLabel.TextSize = UDim2.new(0.5, -180, 1, -114), 13
+	else
+		openButton.Size, openButton.Position, openButton.TextSize = UDim2.new(0, 220, 0, 56), UDim2.new(0.5, -110, 1, -76), 22
+		luckyButton.Size, luckyButton.Position, luckyButton.TextSize = UDim2.new(0, 220, 0, 46), UDim2.new(0.5, -110, 1, -130), 20
+		oddsButton.Size, oddsButton.Position, oddsButton.TextSize = UDim2.new(0, 70, 0, 56), UDim2.new(0.5, -188, 1, -76), 16
+		autoLabel.Position, autoLabel.TextSize = UDim2.new(0.5, -180, 1, -164), 16
+	end
+end
+
 local function showGear(gearId: string, price: number)
 	local gear = GearData.Get(gearId)
 	if not gear then
 		return
 	end
+	local panelScale = panel:FindFirstChildOfClass("UIScale") :: UIScale
+	panelScale.Scale = fitScale()
 	local owned = current and current.owned
 	local rarity = GearData.Rarities[gear.rarity]
 	rarityLabel.Text = string.upper(gear.rarity)
@@ -317,10 +371,10 @@ local function showGear(gearId: string, price: number)
 	ownedLabel.Text, ownedLabel.TextColor3 = ownedText(gear, owned)
 	priceLabel.Text = if price <= 0 then "FREE" elseif current and current.lucky then "$ " .. Format.Number(price) .. "  (Lucky Roll: half price)" else "$ " .. Format.Number(price)
 	buyButton.Visible, skipButton.Visible = true, true
-	refreshButtons()
 	if current then
 		current.revealed = true
 	end
+	refreshButtons()
 	updatePreview()
 end
 
@@ -412,12 +466,37 @@ local function playRevealFx(order: number, color: Color3)
 	end
 end
 
+-- A short line above the crate button: what Auto-Skip just threw away
+local function showAutoSkipped(gear: GearData.Gear)
+	autoToken += 1
+	local token = autoToken
+	autoLabel.Text = string.format("Auto-skipped: %s (%s)", gear.name, gear.rarity)
+	autoLabel.TextColor3 = GearData.Rarities[gear.rarity].color
+	autoLabel.Visible = true
+	task.delay(1.5, function()
+		if token == autoToken then
+			autoLabel.Visible = false
+		end
+	end)
+end
+
 local function onResult(result)
-	if type(result) ~= "table" or type(result.gearId) ~= "string" then
+	if type(result) ~= "table" then
+		return
+	end
+	if result.taken then
+		hidePanel() -- Price Skip took the waiting roll
+		return
+	end
+	if type(result.gearId) ~= "string" then
 		return
 	end
 	local gear = GearData.Get(result.gearId)
 	if not gear then
+		return
+	end
+	if result.autoSkipped then
+		showAutoSkipped(gear)
 		return
 	end
 	current = {
@@ -435,16 +514,16 @@ local function onResult(result)
 		return
 	end
 
-	-- Suspense: cycle rarity colors, longer for rarer pulls
+	-- Suspense: cycle rarity colors, longer for rarer pulls (Fast Rolls skips it)
 	SoundController:Play("RollStart")
-	buyButton.Visible, skipButton.Visible = false, false
+	buyButton.Visible, skipButton.Visible, priceSkipButton.Visible = false, false, false
 	updatePreview()
 	rarityLabel.Text = "ROLLING..."
 	nameLabel.Text = "?"
 	statsLabel.Text = ""
 	ownedLabel.Text = ""
 	priceLabel.Text = ""
-	local duration = SUSPENSE[gear.rarity] or 0.5
+	local duration = if result.fast then 0 else SUSPENSE[gear.rarity] or 0.5
 	local started = os.clock()
 	local crate = myCrate
 	local crateHome = crate and crate.CFrame
@@ -481,8 +560,9 @@ local function onResult(result)
 	playRevealFx(order, GearData.Rarities[gear.rarity].color)
 	SoundController:Play(if order >= 4 then "RevealLegendary" elseif order >= 3 then "RevealEpic" else "RevealCommon")
 	local scale = panel:FindFirstChildOfClass("UIScale") :: UIScale
-	scale.Scale = 1 + 0.08 * order
-	TweenService:Create(scale, TweenInfo.new(0.25, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+	local fit = fitScale()
+	scale.Scale = fit * (1 + 0.08 * order)
+	TweenService:Create(scale, TweenInfo.new(0.25, Enum.EasingStyle.Back), { Scale = fit }):Play()
 end
 
 ------------------------------------------------------------------------
@@ -490,6 +570,7 @@ end
 function CrateController:Init(controllers)
 	UIController = controllers.UIController
 	SoundController = controllers.SoundController
+	OddsController = controllers.OddsController
 	local gui = UIController:GetGui()
 
 	-- Open Crate button: shows when you're near your crate and no reveal is open
@@ -513,9 +594,11 @@ function CrateController:Init(controllers)
 	-- Reveal panel, bottom center
 	panel = Instance.new("Frame")
 	panel.Name = "CratePanel"
+	panel.ZIndex = 5
+	panel.Active = true
 	panel.AnchorPoint = Vector2.new(0.5, 1)
 	panel.Position = PANEL_SHOWN
-	panel.Size = UDim2.new(0, 380, 0, 222)
+	panel.Size = UDim2.new(0, 380, 0, 262)
 	panel.BackgroundColor3 = Color3.fromRGB(24, 22, 28)
 	panel.BackgroundTransparency = 0.1
 	panel.Visible = false
@@ -538,8 +621,35 @@ function CrateController:Init(controllers)
 	-- Two big buttons side by side
 	local w, gap = 160, 12
 	local left = (380 - (2 * w + gap)) / 2
-	buyButton = button(panel, "Buy", Color3.fromRGB(60, 170, 80), UDim2.new(0, w, 0, 52), UDim2.new(0, left, 1, -66))
-	skipButton = button(panel, "Skip", Color3.fromRGB(110, 110, 120), UDim2.new(0, w, 0, 52), UDim2.new(0, left + w + gap, 1, -66))
+	buyButton = button(panel, "Buy", Color3.fromRGB(60, 170, 80), UDim2.new(0, w, 0, 52), UDim2.new(0, left, 1, -106))
+	skipButton = button(panel, "Skip", Color3.fromRGB(110, 110, 120), UDim2.new(0, w, 0, 52), UDim2.new(0, left + w + gap, 1, -106))
+	priceSkipButton = button(panel, "", Color3.fromRGB(40, 120, 190), UDim2.new(0, 2 * w + gap, 0, 34), UDim2.new(0, left, 1, -46))
+	priceSkipButton.TextSize = 15
+	priceSkipButton.Visible = false
+	priceSkipButton.Activated:Connect(function()
+		if current then
+			Remotes.Event("StoreAction"):FireServer("PriceSkip")
+		end
+	end)
+
+	-- Odds button beside Open Crate, and the Auto-Skip line above it
+	oddsButton = button(gui, "Odds", Color3.fromRGB(70, 75, 95), UDim2.new(0, 70, 0, 56), UDim2.new(0.5, -188, 1, -76)) -- left of Open Crate, clear of the phone's Swing button
+	oddsButton.Name = "OddsButton"
+	oddsButton.TextSize = 16
+	oddsButton.Visible = false
+	oddsButton.Activated:Connect(function()
+		OddsController.Toggle()
+	end)
+	autoLabel = label(gui, UDim2.new(0, 360, 0, 22), UDim2.new(0.5, -180, 1, -164), 16)
+	autoLabel.Name = "AutoSkipLabel"
+	layoutButtons()
+	ClientSettings.Changed:Connect(function(key)
+		if key == "compact" then
+			layoutButtons()
+		end
+	end)
+	autoLabel.TextStrokeTransparency = 0.4
+	autoLabel.Visible = false
 
 	buyButton.Activated:Connect(function()
 		if current and buyButton.Active then
@@ -574,6 +684,7 @@ local function updateOpenButton()
 	local distance = crateDistance()
 	local near = distance ~= nil and distance <= CrateConfig.MaxRollDistance - 1
 	openButton.Visible = near and current == nil
+	oddsButton.Visible = openButton.Visible
 	local daily = UIController.Stats.daily
 	local lucky = if type(daily) == "table" then daily.luckyRolls or 0 else 0
 	luckyButton.Visible = openButton.Visible and lucky > 0
@@ -598,7 +709,7 @@ end
 
 -- For the odds screen (week 9): current odds at your luck.
 function CrateController:GetOdds()
-	return CrateConfig.Odds(UIController.Stats.luck or 1)
+	return CrateConfig.GearOdds(UIController.Stats.luck or 1)
 end
 
 return CrateController

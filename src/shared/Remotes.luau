@@ -20,7 +20,7 @@ local EVENTS = {
 
 	-- Crate, digging, forge
 	"CrateRoll", -- client -> server: request a roll (week 2)
-	"CrateResult", -- server -> client: the item you rolled and its price (week 2)
+	"CrateResult", -- server -> client: the item you rolled and its price; or { autoSkipped } / { taken } (week 2, 9)
 	"CrateDecision", -- client -> server: "Buy" | "Skip" (week 2)
 	"SpendStat", -- client -> server: (stat id, points) spend stat points (week 4)
 	"CollectOffline", -- client -> server: collect offline earnings (week 4)
@@ -31,6 +31,8 @@ local EVENTS = {
 	"QuestAction", -- client -> server: ("Accept" | "TurnIn", layer) at a quest giver (week 6)
 	"ElevatorTravel", -- client -> server: destination (0 = Drill Town, n = layer n) (week 7)
 	"DailyAction", -- client -> server: "ClaimStreak" (week 7)
+	"SaveSetting", -- client -> server: (key, value) one of the player's settings changed (week 9)
+	"StoreAction", -- client -> server: ("Buy", passKey) | ("Set", settingKey, value) | "PriceSkip" (week 9)
 
 	-- Rebirth and Re-Drill
 	"RequestRebirth", -- client -> server: the player confirmed a rebirth

@@ -24,8 +24,12 @@ local SoundController = {}
 local entries: { [string]: Entry } = {}
 local rng = Random.new()
 
+-- Every sound effect plays through this group, so Settings can turn them all down
+local effectsGroup: SoundGroup
+
 local function makeSound(name: string, info: SoundConfig.SoundInfo, parent: Instance): Sound
 	local sound = Instance.new("Sound")
+	sound.SoundGroup = effectsGroup
 	sound.Name = name
 	sound.SoundId = "rbxassetid://" .. info.id
 	sound.Volume = info.volume
@@ -39,6 +43,9 @@ local function makeSound(name: string, info: SoundConfig.SoundInfo, parent: Inst
 end
 
 function SoundController:Init()
+	effectsGroup = Instance.new("SoundGroup")
+	effectsGroup.Name = "Effects"
+	effectsGroup.Parent = SoundService
 	local folder = Instance.new("Folder")
 	folder.Name = "GameSounds"
 	folder.Parent = SoundService

@@ -8,7 +8,8 @@
 -- Drops land on the player's side of the barricade and only count once the
 -- player walks within LaneConfig.CoinDrops.PickupRadius of them. The server
 -- checks this itself (the client can't claim coins).
--- Week 9: the Auto-Collect gamepass will simply collect drops instantly.
+-- The Auto-Collect pass (StoreService) picks drops up for you a moment after
+-- they land, and the coin passes multiply everything (CoinMultiplier).
 --
 -- Offline earnings: while you're away your wall keeps earning at
 -- Config.Offline.Rate (25%) of what your current wave pays, for up to
@@ -29,6 +30,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local LaneConfig = require(Shared:WaitForChild("LaneConfig"))
 local Config = require(Shared:WaitForChild("ProgressionConfig"))
 local LayerConfig = require(Shared:WaitForChild("LayerConfig"))
+local StoreConfig = require(Shared:WaitForChild("StoreConfig"))
 local FXBatcher = require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("FXBatcher"))
 
 local STATS_INTERVAL = 0.1 -- send coin updates at most 10 times a second
@@ -37,7 +39,7 @@ local REBIRTH_COOLDOWN = 2 -- seconds, guards against double clicks
 local OFFLINE_MIN_SECONDS = 60 -- shorter absences don't earn anything
 local LAST_ONLINE_INTERVAL = 30 -- how often "last seen" is written (covers crashes)
 
-type Drop = { id: number, value: number, position: Vector3 }
+type Drop = { id: number, value: number, position: Vector3, born: number }
 type DropState = { nextId: number, drops: { [number]: Drop }, count: number }
 
 local EconomyService = {}
@@ -95,11 +97,14 @@ function EconomyService:CanRebirth(player: Player): boolean
 	return data.lostThisRun and Config.RebirthGain(data.runBestWave) > 0
 end
 
--- Everything that multiplies coins: rebirths, your layer and permanent
--- boosts (Gear Index pages)
+-- Everything that multiplies coins: rebirths, your layer, permanent
+-- boosts (Gear Index pages) and the coin passes (StoreService)
 function EconomyService:CoinMultiplier(player: Player, layer: number?): number
 	local data = DataService:Get(player)
-	return data.coinMultiplier * LayerConfig.Get(layer or data.layer).coinMultiplier * services.CharacterService:GetEffects(player).coins
+	return data.coinMultiplier
+		* LayerConfig.Get(layer or data.layer).coinMultiplier
+		* services.CharacterService:GetEffects(player).coins
+		* services.StoreService:CoinBoost(player)
 end
 
 -- Coins worth this many of your current waves (quest, boss and daily rewards)
@@ -238,7 +243,7 @@ local function onEnemyKilled(lane, enemy)
 	local drop: Drop
 	if state.count < LaneConfig.CoinDrops.MaxOnGround then
 		state.nextId = (state.nextId % 65535) + 1
-		drop = { id = state.nextId, value = value, position = landingSpot(lane) }
+		drop = { id = state.nextId, value = value, position = landingSpot(lane), born = os.clock() }
 		state.drops[drop.id] = drop
 		state.count += 1
 	else
@@ -269,13 +274,16 @@ local function checkPickups()
 		local radiusSq = radius * radius
 		local character = player.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
-		if not root then
+		-- Auto-Collect: taken wherever you are, once it has had a moment on the ground
+		local autoBefore = if services.StoreService:Has(player, "autoCollect") then os.clock() - StoreConfig.AutoCollectDelay else nil
+		if not root and not autoBefore then
 			continue
 		end
-		local p = root.Position
+		local p = if root then root.Position else Vector3.zero
 		for id, drop in state.drops do
 			local dx, dz = drop.position.X - p.X, drop.position.Z - p.Z
-			if dx * dx + dz * dz <= radiusSq and math.abs(drop.position.Y - p.Y) < 12 then
+			local near = root ~= nil and dx * dx + dz * dz <= radiusSq and math.abs(drop.position.Y - p.Y) < 12
+			if near or (autoBefore and drop.born <= autoBefore) then
 				state.drops[id] = nil
 				state.count -= 1
 				EconomyService:AddCoins(player, drop.value)
@@ -311,7 +319,8 @@ function EconomyService:CheckOffline(player: Player)
 	if data.lastOnline > 0 then
 		local away = now - data.lastOnline
 		if away >= OFFLINE_MIN_SECONDS then
-			local cap = Config.Offline.MaxHours * 3600
+			services.StoreService:WaitLoaded(player) -- the Long Shift pass raises the cap
+			local cap = (Config.Offline.MaxHours + services.StoreService:OfflineExtraHours(player)) * 3600
 			local coins = math.min(away, cap) * activeCoinRate(player, data) * Config.Offline.Rate
 			if coins >= 1 then
 				data.offlinePending += coins

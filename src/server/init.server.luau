@@ -23,6 +23,8 @@ local ORDER = {
 	"MiningService",
 	"BossService",
 	"CrateService",
+	"StoreService",
+	"SettingsService",
 	"ForgeService",
 	"PowerService",
 	"AbilityService",

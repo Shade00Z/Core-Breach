@@ -95,8 +95,24 @@ function BagController:Init(controllers)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = panel
 
-	local title = label(panel, "Bag", UDim2.new(1, 0, 0, 24), UDim2.new(), 20)
+	local title = label(panel, "Bag", UDim2.new(1, 0, 0, 28), UDim2.new(), 20)
 	title.LayoutOrder = 1
+	-- Close button (inside the title row, so the list layout leaves it alone)
+	local close = Instance.new("TextButton")
+	close.Name = "Close"
+	close.AnchorPoint = Vector2.new(1, 0)
+	close.Position = UDim2.new(1, 4, 0, -4)
+	close.Size = UDim2.new(0, 32, 0, 32)
+	close.BackgroundColor3 = Color3.fromRGB(150, 60, 60)
+	close.Font = Enum.Font.GothamBold
+	close.TextColor3 = Color3.new(1, 1, 1)
+	close.TextSize = 16
+	close.Text = "X"
+	close.Parent = title
+	Instance.new("UICorner", close).CornerRadius = UDim.new(0, 8)
+	close.Activated:Connect(function()
+		panel.Visible = false
+	end)
 	pickaxeLabel = label(panel, "Pickaxe: Stone Pickaxe", UDim2.new(1, 0, 0, 18), UDim2.new(), 14)
 	pickaxeLabel.LayoutOrder = 2
 	list = Instance.new("Frame")

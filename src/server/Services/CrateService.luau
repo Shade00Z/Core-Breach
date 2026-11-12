@@ -17,7 +17,11 @@
 -- Lucky Rolls (from the daily hooks, DailyService) roll at double luck, and
 -- whatever they reveal is half price. Pulling a Mythic is announced to the whole
 -- server; Legendary and Mythic pulls show on Drill Town's pull board.
--- Robux "skip cost" arrives in week 9; luck boosts are never sold for Robux.
+--
+-- Store (StoreService): Price Skip takes the waiting roll without paying
+-- coins (TakeFree). Auto-Open rolls for you from anywhere, Auto-Skip throws
+-- away rolls below a chosen rarity, and Fast Rolls shortens the cooldown and
+-- the reveal. Luck is never sold for Robux.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -28,6 +32,7 @@ local CrateConfig = require(Shared:WaitForChild("CrateConfig"))
 local LayerConfig = require(Shared:WaitForChild("LayerConfig"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local DailyConfig = require(Shared:WaitForChild("DailyConfig"))
+local StoreConfig = require(Shared:WaitForChild("StoreConfig"))
 
 type Pending = { gearId: string, price: number, lucky: boolean? }
 
@@ -91,6 +96,7 @@ local function sendResult(player: Player, roll: Pending, fresh: boolean)
 		price = roll.price,
 		lucky = roll.lucky or false,
 		fresh = fresh,
+		fast = allServices.StoreService:On(player, "fastRolls"),
 		owned = GearService:GetOwnership(player, gear.id) or false,
 	})
 end
@@ -99,29 +105,37 @@ end
 -- Rolling and decisions
 ------------------------------------------------------------------------
 
-function CrateService:Roll(player: Player, lucky: boolean?)
+-- auto = an Auto-Open roll (StoreService): works from anywhere, and does
+-- nothing while a roll is waiting.
+function CrateService:Roll(player: Player, lucky: boolean?, auto: boolean?)
 	local lane = WaveService:GetLane(player)
 	if not lane then
 		return
 	end
+	local StoreService = allServices.StoreService
 
 	-- Must be standing near your own crate
-	local character = player.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart")
-	local crate = lane.model:FindFirstChild("Crate")
-	if not root or not crate or (root.Position - crate.Position).Magnitude > CrateConfig.MaxRollDistance then
-		return
+	if not auto then
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		local crate = lane.model:FindFirstChild("Crate")
+		if not root or not crate or (root.Position - crate.Position).Magnitude > CrateConfig.MaxRollDistance then
+			return
+		end
 	end
 
 	-- A reveal is waiting for a decision: show it again instead of rolling
 	local waiting = getPending(player)
 	if waiting then
-		sendResult(player, waiting, false)
+		if not auto then
+			sendResult(player, waiting, false)
+		end
 		return
 	end
 
 	local now = os.clock()
-	if lastRoll[player] and now - lastRoll[player] < CrateConfig.RollCooldown - 0.05 then
+	local cooldown = if StoreService:On(player, "fastRolls") then StoreConfig.FastRollCooldown else CrateConfig.RollCooldown
+	if lastRoll[player] and now - lastRoll[player] < cooldown - 0.05 then
 		return
 	end
 	if lucky and not allServices.DailyService:UseLuckyRoll(player) then
@@ -134,8 +148,14 @@ function CrateService:Roll(player: Player, lucky: boolean?)
 	local gear = CrateConfig.PickGear(luck, rng)
 	local price = if lucky then math.floor(gear.price * DailyConfig.LuckyRollPriceShare) else gear.price
 	local roll: Pending = { gearId = gear.id, price = price, lucky = lucky or nil }
-	setPending(player, roll)
 	DataService:Get(player).totalRolls += 1
+
+	-- Auto-Skip: below the chosen rarity it's thrown away at once (never a Lucky Roll)
+	if not lucky and GearData.Rarities[gear.rarity].order < StoreService:SkipBelowOrder(player) then
+		resultRemote:FireClient(player, { gearId = gear.id, autoSkipped = true })
+		return
+	end
+	setPending(player, roll)
 	sendResult(player, roll, true)
 
 	-- Big pulls: the town's pull board, and a server-wide announcement for Mythics
@@ -174,6 +194,25 @@ function CrateService:Decide(player: Player, choice: string)
 	end
 
 	pushCrateStats(player)
+end
+
+-- Is a roll with a coin price waiting? (Price Skip only makes sense then)
+function CrateService:HasPaidRoll(player: Player): boolean
+	local roll = getPending(player)
+	return roll ~= nil and roll.price > 0 and GearService:CanReceive(player, roll.gearId) == true
+end
+
+-- Price Skip: take the waiting roll without paying. False if nothing could be taken.
+function CrateService:TakeFree(player: Player): boolean
+	local roll = getPending(player)
+	if not roll or not GearService:CanReceive(player, roll.gearId) then
+		return false
+	end
+	setPending(player, nil)
+	notify(player, "Price Skip! " .. GearService:Give(player, roll.gearId))
+	resultRemote:FireClient(player, { taken = true })
+	pushCrateStats(player)
+	return true
 end
 
 ------------------------------------------------------------------------

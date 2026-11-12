@@ -18,6 +18,7 @@ local UserInputService = game:GetService("UserInputService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local PowerData = require(Shared:WaitForChild("PowerData"))
+local ClientSettings = require(script.Parent.Parent:WaitForChild("ClientSettings"))
 
 local BUTTON_SIZE = 76
 
@@ -118,7 +119,7 @@ local function projectile(start: Vector3, targetId: number?, boss: Model?, aimPo
 	light.Color = color
 	light.Range = 14
 	light.Brightness = 3
-	light.Parent = ball
+	light.Parent = if ClientSettings.Get("lowGraphics") then nil else ball
 	local position, target = start, aimPoint
 	local maxTime = Vector3.new(aimPoint.X - start.X, 0, aimPoint.Z - start.Z).Magnitude / speed + 0.3
 	local born = os.clock()
@@ -151,7 +152,7 @@ local function lavaPool(center: Vector3, ability: PowerData.Ability, damage: num
 	light.Color = color
 	light.Range = radius * 2
 	light.Brightness = 2
-	light.Parent = pool
+	light.Parent = if ClientSettings.Get("lowGraphics") then nil else pool
 	local ticks, every = ability.ticks or 8, ability.tickEvery or 0.5
 	task.spawn(function()
 		for i = 1, ticks do

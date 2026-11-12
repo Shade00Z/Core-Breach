@@ -24,6 +24,7 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local LaneConfig = require(Shared:WaitForChild("LaneConfig"))
 local Signal = require(Shared:WaitForChild("Signal"))
+local StoreConfig = require(Shared:WaitForChild("StoreConfig"))
 local ProfileStore = require(script.Parent.Parent:WaitForChild("Modules"):WaitForChild("ProfileStore"))
 
 -- Change the version suffix only to start everyone over (it's a new save).
@@ -65,6 +66,14 @@ export type PlayerData = {
 		owned: { [string]: { xp: number } }, -- power id -> mastery XP
 		starterGiven: boolean, -- got the free crystal for reaching level 30
 	},
+	-- Store (week 9, StoreConfig)
+	store: {
+		owned: { [string]: boolean }, -- passes Roblox has confirmed (fallback if it can't be asked)
+		settings: { [string]: any }, -- toggles and the Auto-Skip rarity (StoreConfig.DefaultSettings)
+		tokens: number, -- paid Price Skips not used yet
+		receipts: { string }, -- recent purchase ids already granted
+	},
+	settings: { sound: number, music: number, lowGraphics: boolean, effects: boolean }, -- week 9 (SettingsService)
 	daily: {
 		day: number, -- the day (DailyConfig.Today) the daily quests below are for
 		quests: { { id: string, progress: number, done: boolean } },
@@ -114,6 +123,8 @@ local function newTemplate(): PlayerData
 		reDrills = 0,
 		upgrades = {},
 		powers = { crystals = 0, equipped = "", owned = {}, starterGiven = false },
+		store = { owned = {}, settings = table.clone(StoreConfig.DefaultSettings), tokens = 0, receipts = {} },
+		settings = { sound = 1, music = 1, lowGraphics = false, effects = true },
 		daily = { day = -1, quests = {}, allDone = false, streakDay = 0, lastClaimDay = -1, luckyRolls = 0, lastLuckyDay = -1 },
 		level = 1,
 		xp = 0,
